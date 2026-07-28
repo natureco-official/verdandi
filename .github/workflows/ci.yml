@@ -45,13 +45,6 @@ jobs:
         # Node 20'nin test koşucusu onu bir dosya yolu sanar
         # ("Could not find .../--test-reporter=dot"). Node 22+ hoşgörülü
         # davrandığı için hata yalnızca Node 20'de görünüyordu.
-        # shell: bash — Windows'ta varsayılan pwsh dış komutlar için glob
-        # GENİŞLETMEZ, bu yüzden `__tests__/*.test.ts` deseni olduğu gibi
-        # geçiyor ve Node 20 onu dosya adı sanıyor
-        # ("Could not find ...\__tests__\*.test.ts"). Node 22+ glob'u kendi
-        # çözdüğü için hata yalnızca Node 20 + Windows'ta çıkıyordu.
-        # Git Bash her platformda aynı şekilde genişletir.
-        shell: bash
         run: npm run test:ci
       - name: Live MCP smoke test
         run: node smoke_test.mjs

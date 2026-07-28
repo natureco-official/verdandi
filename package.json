@@ -16,7 +16,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "start": "node dist/src/mcp_server.js",
-    "test": "npm run build && node --import tsx --test __tests__/*.test.ts",
+    "test": "npm run build && node scripts/run_tests.mjs",
     "typecheck": "tsc -p tsconfig.json",
     "lint": "npm run typecheck && node scripts/lint.mjs",
     "benchmark:retrieval": "node --import tsx benchmark_runs/oracles/retrieval_quality.mjs",
@@ -30,7 +30,7 @@
     "setup:kimi": "node bin/verdandi-context-compiler setup kimi",
     "setup:glm": "node bin/verdandi-context-compiler setup glm",
     "setup:antigravity": "node bin/verdandi-context-compiler setup antigravity",
-    "test:ci": "npm run build && node --import tsx --test-reporter=dot --test __tests__/*.test.ts"
+    "test:ci": "npm run build && node scripts/run_tests.mjs --test-reporter=dot"
   },
   "keywords": [
     "mcp",
