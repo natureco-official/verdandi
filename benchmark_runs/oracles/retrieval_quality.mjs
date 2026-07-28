@@ -57,7 +57,49 @@ const thresholds = {
 };
 const failed = Object.entries(thresholds).filter(([name, minimum]) => metrics[name] < minimum);
 
-console.log(JSON.stringify({ schemaVersion: 1, worktreeBase, metrics, thresholds, rows }, null, 2));
+/**
+ * Ölçümün hangi kaynak sürümüne dayandığını kaydeder.
+ *
+ * Neden: bu oracle'ın yayınlanan sonuçları (hit@1 %100, sembol recall %100)
+ * "sabitlenen commit" ile alınmıştı ama o commit HİÇBİR YERDE kayıtlı değildi.
+ * Sonuç: sayılar kimse tarafından — sonraki bir çalıştırmada kendimiz dahil —
+ * yeniden üretilemiyordu.
+ *
+ * Ölçüldü: güncel HEAD ile çalıştırıldığında sembol recall %53'e düşüyor,
+ * çünkü beklenen sembollerin dördü (signalProcessGroup, stopProcessGroup,
+ * trimHeaderOws, serializeProtocolDocument) depoda artık YOK. Retrieval
+ * gerilemesi değil, commit kayması — ama dayanak kaydedilmediği için bu ayrım
+ * ancak elle araştırılarak yapılabiliyordu.
+ *
+ * Artık her koşum kendi dayanağını yazıyor.
+ */
+async function calisilanSurum(dizin) {
+  const { execFile } = await import("node:child_process");
+  return new Promise(cozumle => {
+    execFile("git", ["rev-parse", "HEAD"], { cwd: dizin }, (hata, cikti) =>
+      cozumle(hata ? null : String(cikti).trim()),
+    );
+  });
+}
+
+const ilkGorev = groundTruth.tasks[0];
+const baseCommit = await calisilanSurum(path.join(worktreeBase, `${ilkGorev.id}-codex-capsule`));
+
+console.log(
+  JSON.stringify(
+    {
+      schemaVersion: 2,
+      worktreeBase,
+      baseCommit,
+      measuredAt: new Date().toISOString(),
+      metrics,
+      thresholds,
+      rows,
+    },
+    null,
+    2,
+  ),
+);
 if (failed.length > 0) {
   console.error(`retrieval quality threshold failed: ${failed.map(([name]) => name).join(", ")}`);
   process.exitCode = 1;

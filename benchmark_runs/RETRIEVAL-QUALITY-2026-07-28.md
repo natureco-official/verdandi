@@ -31,3 +31,37 @@ Varsayılan worktree kökü `/private/tmp/capsule-baseline-worktrees`'dir; başk
 - Precision, dönen her dosyanın zorunlu edit dosyası olmasını değil, göreve kabul edilebilir kanıt olmasını ölçer.
 - Gerçek T01–T10 oracle'sı büyük dış worktree'lere ihtiyaç duyduğu için CI'da yeniden kurulmaz; yapısal `it/test` regresyonu CI'daki ana pakette çalışır.
 - Genellenebilir kalite için T11–T40, bağımsız ikinci etiketleyici ve kör çözüm kalitesi değerlendirmesi hâlâ gerekir.
+
+---
+
+## Bağımsız yeniden çalıştırma — 28 Temmuz 2026, Windows
+
+Yukarıdaki sonuçlar sabitlenen commit'lerle alınmıştı. O commit'ler depoda
+kayıtlı olmadığı için ölçüm **birebir yeniden üretilemedi**. Bunun yerine
+`modelcontextprotocol/typescript-sdk` deposunun güncel HEAD'i
+(`cc4b41617ce3601b1290d67216ea0b194a3cd9ac`) ile çalıştırıldı:
+
+| Ölçüm | İlk rapor | Güncel HEAD | Eşik | Durum |
+|---|---:|---:|---:|:--|
+| Birincil dosya `hit@1` | %100 | %90,00 | ≥ %90 | geçti |
+| Zorunlu dosya-grubu recall | %100 | %95,45 | ≥ %90 | geçti |
+| Kabul edilebilir dosya precision | %60,78 | %50,91 | ≥ %50 | geçti |
+| Sembol-grubu recall | %100 | %53,33 | ≥ %85 | **kaldı** |
+
+Sembol recall'daki düşüş retrieval gerilemesi DEĞİL. Beklenen sembollerden
+dördü güncel depoda hiç bulunmuyor:
+
+- `signalProcessGroup`, `stopProcessGroup` (T03)
+- `trimHeaderOws` (T06)
+- `serializeProtocolDocument` (T09)
+
+Dosyalar duruyor, semboller yeniden adlandırılmış ya da kaldırılmış. Var olmayan
+bir sembol bulunamaz; ölçüm bu yüzden düşüyor.
+
+### Çıkan ders
+
+Yayınlanan sayılar, dayandıkları kaynak sürümü kayıtlı olmadığı için
+doğrulanamaz durumdaydı. Oracle artık her koşumda `baseCommit` ve `measuredAt`
+alanlarını yazıyor (schemaVersion 2). Sabitlenen commit'ler bulunursa
+`CAPSULE_WORKTREE_BASE` ile o worktree'ler gösterilerek ilk sonuçlar
+doğrulanabilir.
