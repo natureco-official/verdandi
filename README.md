@@ -1,154 +1,217 @@
-# Verðandi Context Compiler
+# Verðandi — Context Compiler for AI Coding Agents
 
 [![CI](https://github.com/natureco-official/verdandi/actions/workflows/ci.yml/badge.svg)](https://github.com/natureco-official/verdandi/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-blue)]()
+[![Tests](https://img.shields.io/badge/tests-111%20passing-brightgreen)]()
 
-**AI kodlama ajanlarının aynı işi çok daha az token harcayarak yapmasını sağlar.**
+> Your agent doesn't spend most of its budget solving the problem.
+> It spends it **looking for the problem**.
 
-Bir ajana kod tabanında iş verdiğinizde ajan genellikle dosyaları tek tek okur, arar, tarar — ve işin büyük bölümü asıl göreve değil, *neyin nerede olduğunu bulmaya* harcanır. Fatura da, süre de oradan çıkar.
+**Verðandi** (pronounced *ver-THAN-dee*) reads your codebase so your agent doesn't have to. It indexes the project with the TypeScript compiler, works out which symbols the task actually touches, and hands the agent a small, bounded capsule of exactly that. The agent skips the hunt and starts on the work.
 
-Verðandi bu arama işini ajandan alır. Kod tabanını TypeScript derleyici API'siyle indeksler, göreve gerçekten dokunan sembolleri ve dosyaları seçer, sınırlı bir kapsül hâlinde ajana verir. Ajan artık kod tabanını dolaşmaz; önüne konan bağlamla doğrudan işe başlar.
+Named after the Norse Norn of the present — the one who sees what *is*, not what was or will be.
 
-Ölçülen sonuç — on gerçek görevde (`modelcontextprotocol/typescript-sdk` deposundan alınmış commit çiftleri), aynı model ve aynı ayarlarla:
+---
 
-| Görev grubu | Input token | Süre |
+## The problem, in one picture
+
+```
+WITHOUT VERÐANDI                          WITH VERÐANDI
+─────────────────────────────────         ─────────────────────────────────
+ Task: "fix the auth retry bug"            Task: "fix the auth retry bug"
+        │                                         │
+        ▼                                         ▼
+ ┌──────────────────────┐                  ┌──────────────────────┐
+ │ agent: ls, grep, cat │  ← tokens        │ Verðandi indexes the │  ← no model
+ │ reads a file… wrong  │  ← tokens        │ repo with the TS AST │     tokens
+ │ reads another…       │  ← tokens        └──────────┬───────────┘
+ │ searches again…      │  ← tokens                   │
+ │ finally finds it     │  ← tokens                   ▼
+ └──────────┬───────────┘                  ┌──────────────────────┐
+            │                              │ capsule: 3 symbols,  │
+            ▼                              │ 2 files, ~250 tokens │
+      starts working                       └──────────┬───────────┘
+                                                      │
+                                                      ▼
+                                                starts working
+```
+
+That search is invisible on your bill. It just looks like "the task was expensive".
+
+---
+
+## What it actually saves
+
+Ten real tasks, taken from commit pairs in [`modelcontextprotocol/typescript-sdk`](https://github.com/modelcontextprotocol/typescript-sdk). Same model, same settings — baseline agent vs. the same agent with Verðandi:
+
+| Task group | Input tokens | Wall time |
 |---|---:|---:|
-| T01–T04 | **-%36,9** | -%22,4 |
-| T01–T03 | **-%52,7** | — |
-| T05–T06 | **-%55,3** | -%11,0 |
-| T07–T08 | **-%74,2** | -%45,3 |
-| T09–T10 | **-%79,8** | -%55,1 |
+| T01–T04 | **−36.9%** | −22.4% |
+| T01–T03 | **−52.7%** | — |
+| T05–T06 | **−55.3%** | −11.0% |
+| T07–T08 | **−74.2%** | −45.3% |
+| T09–T10 | **−79.8%** | −55.1% |
 
-Her koşumun çıktısı bağımsız olarak test edildi, lint'lendi, typecheck'ten geçirildi ve elle incelendi; modelin kendi "yaptım" beyanı kanıt sayılmadı. Kazanç görevin türüne göre değişiyor: arama gerektiren görevlerde büyük, tek satırlık biçim düzeltmelerinde küçük ya da negatif.
+Every run was independently tested, linted, typechecked and read by hand. **The model's own "I verified it" was not accepted as evidence.**
 
-**Henüz kanıtlanmamış olan:** çözüm kalitesinin birebir eşdeğer kaldığı. Görev testleri her iki tarafta da geçiyor, ama üçüncü bir modelin kör karşılaştırma puanı hâlâ bekliyor. Sonuçlar on göreve dayanıyor ve bu hâliyle genellenebilir değil.
+The spread is the honest part: savings scale with how much *searching* a task needs. A one-line import-order fix saves nothing and can even cost more. A bug spread across four files is where 70–80% shows up.
 
-Teknik olarak: TypeScript AST tabanlı görev bağlamı derleyicisi. Geniş kod tabanlarından görevle ilgili sembolleri seçer, sınırlı kaynak dilimleri sağlar ve isteğe bağlı güvenli sembol yamaları uygular.
+### Not proven yet
 
-## Başlangıç
+- **Quality equivalence.** Task tests pass on both sides, but a third-party blind comparison score is still pending. "No quality loss" is the goal, not a finished measurement.
+- **Generality.** Ten tasks, one repository, TypeScript only. T11–T40 and a second independent labeller remain open.
+
+Published because a benchmark that only reports its wins is not a benchmark.
+
+---
+
+## How it works
+
+```
+  your task ──▶ ┌─────────────────────────────────────────────┐
+                │ 1. INDEX     TypeScript compiler API:       │
+                │              symbols, imports, call graph   │
+                ├─────────────────────────────────────────────┤
+                │ 2. SELECT    direct matches, plus 1-hop     │
+                │              neighbours in the call graph   │
+                ├─────────────────────────────────────────────┤
+                │ 3. BUDGET    200–300 tokens normally;       │
+                │              wider when confidence is low   │
+                ├─────────────────────────────────────────────┤
+                │ 4. SERVE     capsule over MCP, or injected  │
+                │              straight into the prompt       │
+                └──────────────────┬──────────────────────────┘
+                                   ▼
+                            agent does the work
+                                   │
+                ┌──────────────────▼──────────────────────────┐
+                │ 5. PATCH     content-hash preconditions,    │
+                │              atomic multi-file, rollback    │
+                └─────────────────────────────────────────────┘
+```
+
+When retrieval confidence falls below `0.72`, Verðandi silently escalates to a wider budget instead of handing over a thin capsule and hoping. After three attempts it stops and hands the task to a human rather than spending more budget on guesses.
+
+---
+
+## Quick start
 
 ```bash
 npm install
 npm run build
 npm test
-./run_with_capsule.sh codex /path/to/project "Görevi yaz"
 ```
 
-`npm test` tam birim, entegrasyon, benchmark-koşucu ve bağımsız adversarial güvenlik paketini çalıştırır. Test sayısı geliştikçe değiştiğinden başarı ölçütü komutun sıfır çıkış kodu ve rapordaki sıfır başarısız testtir. (28.07.2026 itibarıyla: 111 test, hepsi geçiyor.)
+Then choose how to use it.
 
-### Windows
-
-Takım Windows'ta da eksiksiz çalışır, iki noktaya dikkat edin:
-
-- **Symlink güvenlik testleri** Geliştirici Modu gerektirir. Kapalıysa bu iki test gerekçesiyle atlanır (başarısız olmaz), ama symlink kaçış korumaları o makinede doğrulanmamış olur. Açmak için: *Ayarlar → Sistem → Geliştiriciler için → Geliştirici Modu*.
-- **Benchmark koşucusu** `pnpm` çağırır (`npm i -g pnpm`). Kurulu değilse ilgili testler atlanır.
- `benchmark_test.mjs` yalnızca bu depodaki seçilmiş dosyalarla sentetik bağlam hacmini ölçer; uçtan uca ajan token maliyetini veya kalite eşdeğerliğini kanıtlamaz.
-
-## Çalışma Modları
-
-### Auto-inject
-
-`run_with_capsule.sh`, kapsülü ve seçilen kaynak dilimlerini desteklenen ajanın prompt'una ekler:
+### As an MCP server
 
 ```bash
-./run_with_capsule.sh <agent> <project-root> "Görev"
-```
-
-Auto-inject desteklenen ajanlar: `natureco`, `hermes`, `codex`, `claude`, `opencode`, `openclaw`, `kimi`, `glm`.
-
-`antigravity` bu listede yok: MCP sunucusu olarak desteklenir (aşağıya bakın), ama tek seferlik prompt çağrısı `run_with_capsule.sh` içinde tanımlı değil.
-
-### MCP sunucusu
-
-```bash
-node bin/verdandi-context-compiler setup codex
+node bin/verdandi-context-compiler setup codex   # prints the registration command
 node bin/verdandi-context-compiler status
 ```
 
-`setup` şu ajanlar için kayıt komutunu üretir: `codex`, `claude`, `opencode`, `natureco`, `hermes`, `openclaw`, `kimi`, `glm`, `antigravity`.
+Supported: `codex`, `claude`, `opencode`, `natureco`, `hermes`, `openclaw`, `kimi`, `glm`, `antigravity`.
 
-`setup` ilgili ajan için çalıştırılacak kayıt komutunu gösterir. MCP sunucusunu doğrudan başlatmak için `npm start` kullanın.
-
-Stdio protokol sınırı, sabitlenmiş resmî `@modelcontextprotocol/client@2.0.0` ile hem legacy initialize hem de 2026-07-28 `server/discover` akışında sürekli test edilir.
-
-Araçlar:
-
-- `context_capsule`: Görev için sembol ve dosya seçer.
-- `read_symbol`: Sembolün kaynak kanıtını ve karmalarını döndürür.
-- `apply_structured_patch`: Snapshot ve içerik önkoşullarıyla yama uygular.
-- `rollback_patch`: Sadece proje içindeki, yama sonrasında değişmemiş dosyaları geri alır.
-- `validate_delta`: Yalnızca çağıran `commandProfile: "package-scripts"` ile açıkça izin verdiğinde proje scriptlerini çalıştırır.
-
-### Bağımsız ajan
+### Injected into the prompt
 
 ```bash
-verdandi-agent "Import sıralamasını düzelt" --project ./project --model gpt-4o --api-key "$VERDANDI_API_KEY"
+./run_with_capsule.sh <agent> <project-root> "Your task"
 ```
 
-Ortam değişkenleri: `VERDANDI_API_KEY`, `VERDANDI_MODEL`, `VERDANDI_BASE_URL`, `VERDANDI_REQUEST_TIMEOUT_MS`, `VERDANDI_CODEX_MODEL`. Eski `URDR_*` değişkenleri geriye uyumluluk için desteklenir.
+Auto-inject supports `natureco`, `hermes`, `codex`, `claude`, `opencode`, `openclaw`, `kimi`, `glm`. `antigravity` works as an MCP server but has no auto-inject entry yet.
 
-## Güvenlik ve Sınırlar
+### As a standalone agent
 
-- Yamalar kaynak snapshot'ı ve dosya/sembol karmalarını doğrular; eşzamanlı değişen veya proje dışına çözümlenen yolları reddeder.
-- Bağımsız ajan çok dosyalı editleri tek atomik patch olarak uygular; hazırlama veya doğrulama hatasında tüm patch geri alınır.
-- Rollback kayıtları yalnızca göreli dosya yollarını saklar ve kullanıcının sonradan değiştirdiği dosyaları ezmez.
-- Model editleri allowlist ile doğrulanır; eksik, bilinmeyen veya kesilmiş edit dizileri kısmen uygulanmaz.
-- Düşük retrieval confidence Seviye 3 bütçesini gerçekten genişletir; kontrol metadata'sı MCP model içeriğinden ayrı tutulur.
-- `validate_delta` paket scriptlerini çalıştırabildiğinden güvenilmeyen projelerde yalnızca açık kullanıcı onayıyla çağrılmalıdır.
+```bash
+verdandi-agent "Fix the import order" --project ./project --model gpt-4o --api-key "$VERDANDI_API_KEY"
+```
 
-## Geliştirme
+Environment: `VERDANDI_API_KEY`, `VERDANDI_MODEL`, `VERDANDI_BASE_URL`, `VERDANDI_REQUEST_TIMEOUT_MS`, `VERDANDI_CODEX_MODEL`. Legacy `URDR_*` names still work.
+
+---
+
+## The five tools
+
+| Tool | What it does | Why it is safe |
+|---|---|---|
+| `context_capsule` | Picks the symbols and files for a task | Read-only, budget-bounded |
+| `read_symbol` | Returns a symbol's source and hashes | Read-only, project-scoped |
+| `apply_structured_patch` | Applies an edit | Refuses if the file changed since the snapshot |
+| `rollback_patch` | Undoes a patch | Only inside the project, only if untouched since |
+| `validate_delta` | Runs project scripts | Only with explicit `commandProfile: "package-scripts"` |
+
+---
+
+## Safety
+
+This tool reads your source, writes patches and can run your package scripts. That deserves more than a promise, so every guarantee has a test behind it:
+
+| Guarantee | How it is enforced |
+|---|---|
+| No patch against a stale index | Source snapshot plus per-file and per-symbol content hashes |
+| No half-applied multi-file edit | One atomic patch; any failure rolls the whole set back |
+| No escape from the project | Paths resolved and rejected outside the root — **including through symlinks** |
+| No overwriting your work | Rollback skips files you changed after the patch |
+| No surprise command execution | `validate_delta` refuses unless the caller opts in explicitly |
+| Only approved scripts run | `test`, `lint`, `typecheck`, `build` — nothing else |
+
+The adversarial suite is written deliberately *against* the implementation: symlink escapes, stale caches, crash-safe journal manipulation, MCP boundary abuse.
+
+> **Windows:** the two symlink tests need Developer Mode. Without it they are **skipped with a stated reason** rather than failed — but the symlink protections are then unverified on that machine. Enable at *Settings → System → For developers → Developer Mode*.
+
+---
+
+## Development
 
 ```bash
 npm run typecheck
 npm run lint
-npm test
-node smoke_test.mjs
-node benchmark_test.mjs
-node benchmark_runs/setup_worktrees.mjs   # worktree'leri hazırlar
-CAPSULE_WORKTREE_BASE="<çıktıda yazan yol>" npm run benchmark:retrieval
+npm test                                   # 111 tests
+node smoke_test.mjs                        # all five tools, live
+node benchmark_runs/setup_worktrees.mjs    # prepare benchmark worktrees
+CAPSULE_WORKTREE_BASE="<printed path>" npm run benchmark:retrieval
 ```
 
-GitHub Actions kalite matrisi aynı kapıları **Ubuntu, macOS ve Windows** üzerinde Node 20, 22 ve 24 ile çalıştırır; action sürümleri immutable commit SHA'larına sabitlenmiştir.
+CI runs the same gates on **Linux, macOS and Windows** across Node 20, 22 and 24, with action versions pinned to immutable commit SHAs.
 
-Windows matrise 28.07.2026'da eklendi. O güne dek yalnızca Ubuntu ve macOS koşuluyordu ve Windows'a özgü üç hata fark edilmemişti: `validate_delta` hiç çalışmıyordu, benchmark koşucusu her komutu "bulunamadı" sayıyordu ve testlerin dördü ortam farkı yüzünden düşüyordu. Bir platformda koşmayan test, o platformda olmayan testtir.
+Windows joined the matrix on 2026-07-28. Until then only Linux and macOS ran, and three Windows-only defects had gone unnoticed: `validate_delta` never worked at all, the benchmark runner reported every command as "not found", and four tests failed for environment reasons. **A test that does not run on a platform is a test that does not exist there.**
 
-Mimari ayrıntıları ve ajan bazlı komutlar için `UNIVERSAL.md` ve `integrations/` dizinine bakın.
+---
 
-## Ölçüm durumu
+## Retrieval quality
 
-Retrieval kalitesi T01–T10 için `modelcontextprotocol/typescript-sdk` worktree'lerine
-karşı ölçülür. Son bağımsız koşum (28.07.2026, dayanak `cc4b416`):
+Measured against the SDK repository. Most recent independent run (2026-07-28, base `cc4b416`):
 
-| Ölçüm | Sonuç | Eşik |
+| Metric | Result | Threshold |
 |---|---:|---:|
-| Birincil dosya `hit@1` | %90,00 | ≥ %90 |
-| Zorunlu dosya-grubu recall | %95,45 | ≥ %90 |
-| Kabul edilebilir dosya precision | %50,91 | ≥ %50 |
-| Sembol-grubu recall | %53,33 | ≥ %85 |
+| Primary file `hit@1` | 90.00% | ≥ 90% |
+| Required file-group recall | 95.45% | ≥ 90% |
+| Acceptable file precision | 50.91% | ≥ 50% |
+| Symbol-group recall | 53.33% | ≥ 85% |
 
-Sembol recall eşiğin altında. Sebep retrieval gerilemesi değil: beklenen dört
-sembol (`signalProcessGroup`, `stopProcessGroup`, `trimHeaderOws`,
-`serializeProtocolDocument`) güncel depoda artık yok — dosyalar duruyor,
-semboller yeniden adlandırılmış.
+Symbol recall sits below its threshold, and the cause is not a retrieval regression: four expected symbols (`signalProcessGroup`, `stopProcessGroup`, `trimHeaderOws`, `serializeProtocolDocument`) no longer exist upstream. The files are still there; the symbols were renamed.
 
-Daha önce yayınlanan %100'lük sonuçlar sabitlenen commit'lerle alınmıştı ve
-**yeniden üretilemiyor**: o commit'ler kayıtlı değil. Bu yüzden oracle artık her
-koşumda `baseCommit` ve `measuredAt` alanlarını yazar. Ayrıntı:
-[`benchmark_runs/RETRIEVAL-QUALITY-2026-07-28.md`](benchmark_runs/RETRIEVAL-QUALITY-2026-07-28.md).
+An earlier run reported 100% for `hit@1` and symbol recall, but those numbers **cannot be reproduced** — the commits they were pinned to were never recorded anywhere. That is why the oracle now writes `baseCommit` and `measuredAt` into every result. Details in [`benchmark_runs/RETRIEVAL-QUALITY-2026-07-28.md`](benchmark_runs/RETRIEVAL-QUALITY-2026-07-28.md).
 
-Benchmark hâlâ on göreve dayanıyor; T11–T40, ikinci bağımsız etiketleyici ve kör
-çözüm kalitesi değerlendirmesi bekliyor. Sonuçlar bu hâliyle genellenebilir değil.
+---
 
-## Nature.co ekosistemi
+## Nature.co ecosystem
 
-- [Urðr](https://github.com/natureco-official/urdr) — ağaç yapılı kalıcı karar belleği
-- [CodeDNA](https://github.com/natureco-official/codedna) — kod kimlik ve benzerlik analizi
-- [NatureCo CLI](https://github.com/natureco-official/natureco-cli) — platform komut satırı aracı
-- [NatureCo SDK](https://github.com/natureco-official/natureco-sdk) — JavaScript SDK
-- [Cupertino Terminal](https://github.com/natureco-official/cupertino-terminal) — macOS'tan Windows'a uzak terminal
+| Project | What it does |
+|---|---|
+| [Urðr](https://github.com/natureco-official/urdr) | Tree-structured persistent memory for agents |
+| **Verðandi** | Task context — this repository |
+| [CodeDNA](https://github.com/natureco-official/codedna) | Measures AI authorship and understanding debt |
+| [NatureCo CLI](https://github.com/natureco-official/natureco-cli) | Terminal client for the platform |
+| [NatureCo SDK](https://github.com/natureco-official/natureco-sdk) | JavaScript SDK |
+| [Cupertino Terminal](https://github.com/natureco-official/cupertino-terminal) | Native terminal with an encrypted P2P remote shell |
 
-Verðandi yalnızca görev bağlamı üretir; kalıcı karar belleği Urðr'a aittir.
+Urðr remembers across sessions. Verðandi decides what matters *right now*. They stay separate on purpose: Verðandi keeps no session history and stores no large code fragments.
 
-## Lisans
+Architecture notes and per-agent commands live in [`UNIVERSAL.md`](UNIVERSAL.md) and [`integrations/`](integrations/).
 
-MIT — bkz. [LICENSE](LICENSE).
+## License
+
+MIT — see [LICENSE](LICENSE).
