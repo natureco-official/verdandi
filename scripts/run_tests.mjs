@@ -43,10 +43,15 @@ if (dosyalar.length === 0) {
 // dosya yolu sanıyor.
 const ekBayraklar = process.argv.slice(2);
 
+// Testler gerçek MCP sunucusunu başlatıyor ve kayıt varsayılan olarak açık.
+// Devre dışı bırakılmazsa depo içindeki .verdandi/usage.jsonl her `npm test`
+// ile şişer ve "gerçek kullanımda ne bozuluyor" sinyali test gürültüsünün
+// altında kalır. Kaydın kendi testleri yolu zaten geçici bir dizine çeviriyor,
+// bu yüzden onlar bundan etkilenmez.
 const cocuk = spawn(
   process.execPath,
   ["--import", "tsx", ...ekBayraklar, "--test", ...dosyalar],
-  { cwd: kok, stdio: "inherit" },
+  { cwd: kok, stdio: "inherit", env: { ...process.env, VERDANDI_USAGE_LOG: "0" } },
 );
 
 cocuk.on("exit", (kod, sinyal) => {

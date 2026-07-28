@@ -202,6 +202,29 @@ Adversarial test paketi bilinçli olarak implementasyona **karşı** yazıldı: 
 
 > **Windows:** iki symlink testi Geliştirici Modu ister. Açık değilse bu testler **gerekçesiyle atlanır**, başarısız olmaz — ama symlink korumaları o makinede doğrulanmamış olur. *Ayarlar → Sistem → Geliştiriciler için → Geliştirici Modu*.
 
+### Kullanım kaydı
+
+Yukarıdaki bütün ölçümler benchmark koşumlarından geliyor: seçilmiş görevler, temiz worktree'ler, tek depo. Bunlar sizin kod tabanınızda salı öğleden sonra neyin bozulduğu hakkında hiçbir şey söylemez. Bu yüzden sunucu yerel bir kayıt tutuyor; "kullandıkça düzelecek" iddiasının arkasındaki tek şey bu.
+
+**Kaydettiği**, her araç çağrısı için: zaman damgası, araç adı, süre, sembol ve dosya sayısı, kapsül token boyutu, retrieval güveni, eskalasyon denemesi, görevin devredilip devredilmediği, belirtilen belirsizlik gerekçeleri ve çağrı düştüyse hata mesajı. Görev metni ve sembol adları **200 karaktere kırpılarak** yazılıyor, çünkü "hangi görevde ıskaladı" sorusu onlar olmadan cevaplanmıyor.
+
+**Kaydetmediği**: kaynak kodu ve sembol gövdeleri. Makinenizden hiç çıkmıyor — içinde uç nokta, yükleme, ağ çağrısı yok.
+
+```bash
+node scripts/kullanim-ozeti.mjs        # hata oranı, devir oranı, düşük güvenli
+                                       # çağrılar, tekrarlayan belirsizlik gerekçeleri
+```
+
+| | |
+|---|---|
+| Yeri | `.verdandi/usage.jsonl` (gitignore'da) |
+| Taşımak | `VERDANDI_USAGE_LOG_PATH=/bir/yol.jsonl` |
+| Kapatmak | `VERDANDI_USAGE_LOG=0` |
+
+Kaydın düşmesi bir araç çağrısını asla bozamaz: her yazma sarmalanmış ve JSON-RPC kanalı olan stdout'a hiçbir şey yazılmıyor. İkisi de niyet değil, test. Kapalıyken dosyanın hiç oluşmadığı da öyle.
+
+Test paketi kayıt kapalı koşuyor. Önceki hali öyle değildi ve `npm test` dosyayı sessizce kendi trafiğiyle dolduruyordu; test gürültüsüyle dolu bir kullanım kaydı sorulmaya değer hiçbir soruyu cevaplamaz.
+
 ---
 
 ## Geliştirme

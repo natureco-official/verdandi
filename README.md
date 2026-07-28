@@ -202,6 +202,29 @@ The adversarial suite is written deliberately *against* the implementation: syml
 
 > **Windows:** the two symlink tests need Developer Mode. Without it they are **skipped with a stated reason** rather than failed — but the symlink protections are then unverified on that machine. Enable at *Settings → System → For developers → Developer Mode*.
 
+### The usage log
+
+Every measurement above comes from benchmark runs: curated tasks, clean worktrees, one repository. That says nothing about what breaks on a Tuesday afternoon in your codebase. So the server keeps a local log, and it is the only thing standing behind the claim that this gets better with use.
+
+**It records**, per tool call: timestamp, tool name, duration, symbol and file counts, capsule token size, retrieval confidence, escalation attempt, whether the task was handed off, the stated ambiguity reasons, and the error message when a call fails. Task text and symbol names are recorded **truncated to 200 characters**, because "which task did retrieval miss on" is not answerable without them.
+
+**It never records** source code or symbol bodies, and it never leaves your machine — there is no endpoint, no upload, no network call anywhere in it.
+
+```bash
+node scripts/kullanim-ozeti.mjs        # error rate, handoff rate, low-confidence
+                                       # calls, recurring ambiguity reasons
+```
+
+| | |
+|---|---|
+| Location | `.verdandi/usage.jsonl` (gitignored) |
+| Move it | `VERDANDI_USAGE_LOG_PATH=/some/path.jsonl` |
+| Turn it off | `VERDANDI_USAGE_LOG=0` |
+
+Logging failure can never break a tool call: every write is wrapped, and nothing is written to stdout, which is the JSON-RPC channel. Both properties are tests, not intentions — as is the check that the log stays empty when disabled.
+
+The test suite runs with the log switched off. An earlier version did not, and `npm test` quietly filled the file with its own traffic; a usage log full of test noise answers no question worth asking.
+
 ---
 
 ## Development

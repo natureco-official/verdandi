@@ -20,6 +20,12 @@ function createOfficialClient(modern = false) {
     args: [SERVER_PATH],
     cwd: PROJECT_ROOT,
     stderr: "pipe",
+    // StdioClientTransport ana süreç ortamını olduğu gibi geçirmez; güvenli bir
+    // alt küme aktarır. Bu yüzden test koşucusunun VERDANDI_USAGE_LOG=0 ayarı
+    // buraya ulaşmıyor ve bu testler depo içindeki kullanım kaydına yazıyordu.
+    // Kayıt "gerçek kullanımda ne bozuluyor" sorusu için tutuluyor; test
+    // gürültüsü onu işe yaramaz hale getirir.
+    env: { ...process.env, VERDANDI_USAGE_LOG: "0" },
   });
   return { client, transport };
 }

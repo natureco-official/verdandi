@@ -1,6 +1,7 @@
 import { createInterface } from "node:readline";
 import { TypeScriptContextCompiler } from "./context_compiler.js";
 import { mapContextCapsule, MCP_TOOL_NAMES, type ContextCapsuleWire } from "../mcp_tools.js";
+import { kullanimKaydet } from "./usage_log.js";
 
 const tools = new TypeScriptContextCompiler();
 const MAX_REQUEST_LINE_BYTES = 8 * 1024 * 1024;
@@ -214,12 +215,60 @@ input.on("line", async line => {
         return;
       }
       let value: unknown;
-      if (name === "context_capsule") value = mapContextCapsule(await tools.context_capsule(args), "serialize");
-      else if (name === "read_symbol") value = await tools.read_symbol(args);
-      else if (name === "apply_structured_patch") value = await tools.apply_structured_patch(args);
-      else if (name === "rollback_patch") value = await tools.rollback_patch(args);
-      else if (name === "validate_delta") value = await tools.validate_delta(args);
-      else throw new Error(`Unknown tool: ${name}`);
+      const basladi = Date.now();
+      try {
+        if (name === "context_capsule") value = mapContextCapsule(await tools.context_capsule(args), "serialize");
+        else if (name === "read_symbol") value = await tools.read_symbol(args);
+        else if (name === "apply_structured_patch") value = await tools.apply_structured_patch(args);
+        else if (name === "rollback_patch") value = await tools.rollback_patch(args);
+        else if (name === "validate_delta") value = await tools.validate_delta(args);
+        else throw new Error(`Unknown tool: ${name}`);
+      } catch (aracHatasi) {
+        // Başarısızlıklar en çok işe yarayan kayıtlar: gerçek kullanımda neyin
+        // bozulduğu buradan görünür. Kaydı yazıp hatayı olduğu gibi bırakıyoruz.
+        kullanimKaydet({
+          arac: String(name),
+          sureMs: Date.now() - basladi,
+          hata: aracHatasi instanceof Error ? aracHatasi.message : String(aracHatasi),
+          gorev: typeof (args as Record<string, unknown>)?.task === "string"
+            ? ((args as Record<string, unknown>).task as string)
+            : undefined,
+        });
+        throw aracHatasi;
+      }
+      if (name === "context_capsule") {
+        const k = value as ContextCapsuleWire;
+        kullanimKaydet({
+          arac: name,
+          sureMs: Date.now() - basladi,
+          gorev: typeof (args as Record<string, unknown>)?.task === "string"
+            ? ((args as Record<string, unknown>).task as string)
+            : undefined,
+          sembolSayisi: k.model_payload.relevant_symbols.length,
+          dosyaSayisi: k.model_payload.probable_files.length,
+          kapsulToken: k.control.estimated_payload_tokens,
+          guven: k.control.retrieval_confidence,
+          yukseltme: k.control.escalation_attempt,
+          devredildi: k.control.handoff_required,
+          devirNedeni: k.control.handoff_reason,
+          belirsizlik: k.control.uncertainty_reasons,
+        });
+      } else {
+        // read_symbol bulamadığında hata fırlatmaz; boş kanıt, düşük güven ve
+        // bir ambiguity gerekçesi döner. Sinyal orada olduğu için kayıt da
+        // oradan alınmalı — yoksa "hep başarılı" görünür.
+        const r = value as Record<string, unknown> | undefined;
+        kullanimKaydet({
+          arac: String(name),
+          sureMs: Date.now() - basladi,
+          gorev: typeof (args as Record<string, unknown>)?.symbol === "string"
+            ? ((args as Record<string, unknown>).symbol as string)
+            : undefined,
+          guven: typeof r?.confidence === "number" ? r.confidence : undefined,
+          belirsizlik: Array.isArray(r?.ambiguity) ? (r.ambiguity as string[]) : undefined,
+          devredildi: typeof r?.requiresEscalation === "boolean" ? (r.requiresEscalation as boolean) : undefined,
+        });
+      }
       if (name === "context_capsule") {
         const capsule = value as ContextCapsuleWire;
         respond({
