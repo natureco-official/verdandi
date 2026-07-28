@@ -80,7 +80,21 @@ function run(command) {
     const startedAt = new Date().toISOString();
     const started = Date.now();
     const executable = command.executable ?? 'pnpm';
-    const child = spawn(executable, command.args, { cwd, env: process.env });
+    // Windows'ta pnpm/npm PATH üzerinde .cmd toplu iş dosyasıdır. spawn shell
+    // açmadığı için uzantısız ad ENOENT verir (exitCode 127) ve uzantı eklemek
+    // de çözmez: Node 20+ .cmd dosyalarını shell'siz çalıştırmayı güvenlik
+    // gerekçesiyle reddeder (EINVAL, CVE-2024-27980). Bu yüzden benchmark
+    // koşucusu Windows'ta her komutu "bulunamadı" olarak raporluyordu.
+    //
+    // Shell yalnızca Windows'ta açılıyor ve burada güvenli: çalıştırılabilir
+    // ad ile argümanların tamamı bu dosyadaki sabit komut tablosundan geliyor
+    // (packageValidation ve commands). taskId/agent yalnızca hangi tablo
+    // satırının seçileceğini belirler, komut satırına girmez.
+    const child = spawn(executable, command.args, {
+      cwd,
+      env: process.env,
+      shell: process.platform === 'win32',
+    });
     const stdout = [];
     const stderr = [];
     let stdoutBytes = 0;

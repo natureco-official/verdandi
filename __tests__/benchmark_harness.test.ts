@@ -15,8 +15,15 @@ import { classifyAcceptedBaselineFailure, diagnosticContentSignature } from "../
 async function benchmarkOnkosuluEksik(): Promise<string | null> {
   const { execFile } = await import("node:child_process");
   const komut = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
+  // Yoklama NÖTR bir dizinden yapılır. Bu depo package-lock.json kullandığı
+  // için pnpm proje kökünde "This project is configured to use npm" deyip
+  // çıkış kodu 1 veriyor — pnpm kurulu olsa bile. Proje kökünden ölçmek,
+  // kurulu bir aracı "yok" sanmaya yol açıyordu.
+  const { tmpdir } = await import("node:os");
   const bulundu = await new Promise<boolean>(cozumle => {
-    execFile(komut, ["--version"], { shell: process.platform === "win32" }, hata => cozumle(!hata));
+    execFile(komut, ["--version"], { cwd: tmpdir(), shell: process.platform === "win32" }, hata =>
+      cozumle(!hata),
+    );
   });
   return bulundu ? null : "pnpm kurulu değil; benchmark koşucusu onu çağırıyor";
 }
