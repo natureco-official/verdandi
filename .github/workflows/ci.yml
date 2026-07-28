@@ -40,7 +40,12 @@ jobs:
       - name: Typecheck and static safety lint
         run: npm run lint
       - name: Full test suite
-        run: npm test -- --test-reporter=dot
+        # npm test -- --test-reporter=dot KULLANILMAZ: npm ek argümanları
+        # scriptin SONUNA ekler, yani bayrak dosya adlarından sonra gelir ve
+        # Node 20'nin test koşucusu onu bir dosya yolu sanar
+        # ("Could not find .../--test-reporter=dot"). Node 22+ hoşgörülü
+        # davrandığı için hata yalnızca Node 20'de görünüyordu.
+        run: npm run test:ci
       - name: Live MCP smoke test
         run: node smoke_test.mjs
       - name: Synthetic token-volume guard

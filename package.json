@@ -29,7 +29,8 @@
     "setup:openclaw": "node bin/verdandi-context-compiler setup openclaw",
     "setup:kimi": "node bin/verdandi-context-compiler setup kimi",
     "setup:glm": "node bin/verdandi-context-compiler setup glm",
-    "setup:antigravity": "node bin/verdandi-context-compiler setup antigravity"
+    "setup:antigravity": "node bin/verdandi-context-compiler setup antigravity",
+    "test:ci": "npm run build && node --import tsx --test-reporter=dot --test __tests__/*.test.ts"
   },
   "keywords": [
     "mcp",

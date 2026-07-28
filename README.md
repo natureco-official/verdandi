@@ -3,7 +3,27 @@
 [![CI](https://github.com/natureco-official/verdandi/actions/workflows/ci.yml/badge.svg)](https://github.com/natureco-official/verdandi/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-Verðandi, AI coding agent'ları için TypeScript AST tabanlı görev bağlamı derleyicisidir. Geniş kod tabanlarından görevle ilgili sembolleri seçer, sınırlı kaynak dilimleri sağlar ve isteğe bağlı güvenli sembol yamaları uygular.
+**AI kodlama ajanlarının aynı işi çok daha az token harcayarak yapmasını sağlar.**
+
+Bir ajana kod tabanında iş verdiğinizde ajan genellikle dosyaları tek tek okur, arar, tarar — ve işin büyük bölümü asıl göreve değil, *neyin nerede olduğunu bulmaya* harcanır. Fatura da, süre de oradan çıkar.
+
+Verðandi bu arama işini ajandan alır. Kod tabanını TypeScript derleyici API'siyle indeksler, göreve gerçekten dokunan sembolleri ve dosyaları seçer, sınırlı bir kapsül hâlinde ajana verir. Ajan artık kod tabanını dolaşmaz; önüne konan bağlamla doğrudan işe başlar.
+
+Ölçülen sonuç — on gerçek görevde (`modelcontextprotocol/typescript-sdk` deposundan alınmış commit çiftleri), aynı model ve aynı ayarlarla:
+
+| Görev grubu | Input token | Süre |
+|---|---:|---:|
+| T01–T04 | **-%36,9** | -%22,4 |
+| T01–T03 | **-%52,7** | — |
+| T05–T06 | **-%55,3** | -%11,0 |
+| T07–T08 | **-%74,2** | -%45,3 |
+| T09–T10 | **-%79,8** | -%55,1 |
+
+Her koşumun çıktısı bağımsız olarak test edildi, lint'lendi, typecheck'ten geçirildi ve elle incelendi; modelin kendi "yaptım" beyanı kanıt sayılmadı. Kazanç görevin türüne göre değişiyor: arama gerektiren görevlerde büyük, tek satırlık biçim düzeltmelerinde küçük ya da negatif.
+
+**Henüz kanıtlanmamış olan:** çözüm kalitesinin birebir eşdeğer kaldığı. Görev testleri her iki tarafta da geçiyor, ama üçüncü bir modelin kör karşılaştırma puanı hâlâ bekliyor. Sonuçlar on göreve dayanıyor ve bu hâliyle genellenebilir değil.
+
+Teknik olarak: TypeScript AST tabanlı görev bağlamı derleyicisi. Geniş kod tabanlarından görevle ilgili sembolleri seçer, sınırlı kaynak dilimleri sağlar ve isteğe bağlı güvenli sembol yamaları uygular.
 
 ## Başlangıç
 
@@ -34,7 +54,9 @@ Takım Windows'ta da eksiksiz çalışır, iki noktaya dikkat edin:
 ./run_with_capsule.sh <agent> <project-root> "Görev"
 ```
 
-Desteklenen ajanlar: `natureco`, `hermes`, `codex`, `claude`, `opencode`, `openclaw`, `kimi`, `glm`.
+Auto-inject desteklenen ajanlar: `natureco`, `hermes`, `codex`, `claude`, `opencode`, `openclaw`, `kimi`, `glm`.
+
+`antigravity` bu listede yok: MCP sunucusu olarak desteklenir (aşağıya bakın), ama tek seferlik prompt çağrısı `run_with_capsule.sh` içinde tanımlı değil.
 
 ### MCP sunucusu
 
@@ -42,6 +64,8 @@ Desteklenen ajanlar: `natureco`, `hermes`, `codex`, `claude`, `opencode`, `openc
 node bin/verdandi-context-compiler setup codex
 node bin/verdandi-context-compiler status
 ```
+
+`setup` şu ajanlar için kayıt komutunu üretir: `codex`, `claude`, `opencode`, `natureco`, `hermes`, `openclaw`, `kimi`, `glm`, `antigravity`.
 
 `setup` ilgili ajan için çalıştırılacak kayıt komutunu gösterir. MCP sunucusunu doğrudan başlatmak için `npm start` kullanın.
 
