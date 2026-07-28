@@ -11,7 +11,7 @@
 | 3. TypeScript/JS sembol indeksi | İlk MVP hazır | TypeScript compiler API ile `.ts/.tsx/.mts/.cts/.js/.jsx/.mjs/.cjs` AST sembolleri, relative import ve çağrı ilişkileri taranıyor; 1-hop komşular ve derin tipler okunabiliyor. |
 | 4. Beş MCP aracı | Tamamlandı (MVP) | Beş araç hazır; `@modelcontextprotocol/client@2.0.0` ile legacy initialize ve 2026-07-28 discovery/list/call/error/close akışları doğrulandı. |
 | 5. Benchmark'ı context compiler ile tekrar çalıştırma | T01–T10 tamamlandı | On Codex/Capsule çifti mevcut. T04 üç tekrarlı izole oracle ile; T02/T03 exact baseline-diagnostic imzasıyla; T08 declaration/public-import oracle'sıyla yeniden doğrulandı. |
-| 6. Token ve kör review-score karşılaştırması | Devam ediyor | T01–T10 retrieval oracle'sı hit@1 %100, dosya-grubu recall %100, kabul edilebilir precision %60,78 ve sembol recall %100 veriyor; bağımsız kör çözüm skoru bekliyor. |
+| 6. Token ve kör review-score karşılaştırması | Devam ediyor | İlk ölçüm hit@1 %100, dosya-grubu recall %100, precision %60,78, sembol recall %100 vermişti — ancak bu sayılar **yeniden üretilemiyor**: dayandıkları sabitlenen commit'ler hiçbir yerde kayıtlı değil ve aranıp bulunamadı. 28.07.2026'da güncel HEAD (`cc4b416`) ile alınan bağımsız ölçüm: hit@1 %90,00 · dosya-grubu recall %95,45 · precision %50,91 · sembol recall %53,33. Sembol düşüşü retrieval gerilemesi DEĞİL — beklenen dört sembol depoda artık yok. Ayrıntı: `benchmark_runs/RETRIEVAL-QUALITY-2026-07-28.md`. Bağımsız kör çözüm skoru hâlâ bekliyor. |
 | 7. Rust/Python ve diğer dillere genişletme | Bekliyor | TypeScript sonuçları başarı eşiğini geçerse başlanacak. |
 
 ## Tamamlanan tasarım kararları
