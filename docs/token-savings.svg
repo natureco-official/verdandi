@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 300" width="760" height="300" role="img" aria-label="Input token comparison: baseline 12.44 million versus Verdandi 3.47 million across nine tasks">
+  <title>Input tokens across nine real tasks — baseline vs Verðandi</title>
+
+  <style>
+    .lbl   { font: 600 14px ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; fill: #8b949e; }
+    .num   { font: 700 26px ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+    .sub   { font: 500 12px ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; fill: #8b949e; }
+    .big   { font: 800 42px ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; fill: #2ea043; }
+    .cap   { font: 600 13px ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; fill: #6e7681; }
+
+    .barA { fill: #6e7681; }
+    .barB { fill: #2ea043; }
+
+    /* Çubuklar soldan büyür. Animasyon desteklenmezse tam boyda görünür —
+       bilgi hiçbir durumda kaybolmaz. */
+    .grow { transform-origin: 168px 0; animation: grow 1.1s cubic-bezier(.22,.61,.36,1) both; }
+    .grow2 { animation-delay: .35s; }
+    .fade { animation: fade .6s ease-out both; animation-delay: 1.1s; }
+
+    @keyframes grow { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+    @keyframes fade { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+    @media (prefers-reduced-motion: reduce) {
+      .grow, .grow2, .fade { animation: none; }
+    }
+  </style>
+
+  <text x="0" y="22" class="lbl">INPUT TOKENS · 9 REAL TASKS · SAME MODEL, SAME SETTINGS</text>
+
+  <!-- Baseline -->
+  <text x="0" y="76" class="lbl">Baseline agent</text>
+  <g class="grow">
+    <rect x="168" y="56" width="560" height="34" rx="6" class="barA"/>
+  </g>
+  <text x="180" y="80" class="num" fill="#ffffff">12,441,813</text>
+
+  <!-- Verdandi -->
+  <text x="0" y="140" class="lbl">With Verðandi</text>
+  <g class="grow grow2">
+    <rect x="168" y="120" width="156" height="34" rx="6" class="barB"/>
+  </g>
+  <text x="336" y="144" class="num" fill="#2ea043">3,469,909</text>
+
+  <!-- Sonuç -->
+  <g class="fade">
+    <text x="0" y="215" class="big">−72%</text>
+    <text x="112" y="203" class="sub">8,971,904 tokens saved</text>
+    <text x="112" y="221" class="sub">3.59× less input, same tasks completed</text>
+
+    <line x1="0" y1="246" x2="728" y2="246" stroke="#30363d" stroke-width="1"/>
+    <text x="0" y="270" class="cap">Every run independently tested, linted, typechecked and read by hand.</text>
+    <text x="0" y="288" class="cap">The model's own "I verified it" was not accepted as evidence.</text>
+  </g>
+</svg>

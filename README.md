@@ -4,13 +4,54 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-blue)]()
 [![Tests](https://img.shields.io/badge/tests-111%20passing-brightgreen)]()
+[![Tokens](https://img.shields.io/badge/input%20tokens-−72%25%20measured-2ea043)]()
+
+**🇹🇷 [Türkçe sürüm](README.tr.md)**
 
 > Your agent doesn't spend most of its budget solving the problem.
 > It spends it **looking for the problem**.
 
-**Verðandi** (pronounced *ver-THAN-dee*) reads your codebase so your agent doesn't have to. It indexes the project with the TypeScript compiler, works out which symbols the task actually touches, and hands the agent a small, bounded capsule of exactly that. The agent skips the hunt and starts on the work.
+**Verðandi** reads your codebase so your agent doesn't have to. It indexes the project with the TypeScript compiler, works out which symbols the task actually touches, and hands the agent a small, bounded capsule of exactly that. The agent skips the hunt and starts on the work.
 
-Named after the Norse Norn of the present — the one who sees what *is*, not what was or will be.
+<img src="docs/token-savings.svg" alt="Input tokens across nine real tasks: 12,441,813 baseline versus 3,469,909 with Verðandi — 72% less" width="100%">
+
+---
+
+## The measurement
+
+Nine real tasks, taken from commit pairs in [`modelcontextprotocol/typescript-sdk`](https://github.com/modelcontextprotocol/typescript-sdk). Same model, same effort setting, same tasks. The only difference is whether the agent had to find its own context.
+
+| Task | Baseline | With Verðandi | Change | |
+|---|---:|---:|---:|:--|
+| T01 | 123,662 | 150,152 | **+21.4%** | `▓▓▓▓▓▓▓▓▓▓▓▓` |
+| T07 | 632,596 | 451,486 | **−28.6%** | `▓▓▓▓▓▓▓▓░░░░` |
+| T06 | 838,150 | 393,572 | **−53.0%** | `▓▓▓▓▓░░░░░░░` |
+| T03 | 660,577 | 308,988 | **−53.2%** | `▓▓▓▓▓░░░░░░░` |
+| T05 | 678,465 | 284,876 | **−58.0%** | `▓▓▓▓▓░░░░░░░` |
+| T10 | 1,668,854 | 611,438 | **−63.4%** | `▓▓▓▓░░░░░░░░` |
+| T02 | 2,197,039 | 569,752 | **−74.1%** | `▓▓▓░░░░░░░░░` |
+| T08 | 2,224,703 | 284,683 | **−87.2%** | `▓▓░░░░░░░░░░` |
+| T09 | 3,417,767 | 414,962 | **−87.9%** | `▓░░░░░░░░░░░` |
+| **Total** | **12,441,813** | **3,469,909** | **−72.1%** | **3.59× less** |
+
+**8,971,904 input tokens saved** across the nine tasks — 3.59× less input for the same work completed. Wall time fell too, between 11% and 55% per task group, but tokens are the number that shows up on the invoice.
+
+> **Why there is no T04.** T04 was measured (1,384,450 → 577,883) but is excluded: both its retry tests turned out to be order-dependent and failed under isolated testing *on both sides*, so neither run proved the fix. The tests were repaired afterwards, and the token numbers predate that repair. Note that this exclusion **flatters us** — T04's −58.3% is below average, so including it would move the headline to −70.7%. It is left out because the result is invalid, not because it is inconvenient.
+
+### T01 is in that table on purpose
+
+T01 costs **21% more** with Verðandi. It's a two-line import-order fix: there is nothing to search for, so the capsule is pure overhead.
+
+That is the whole shape of the result. Verðandi does not make models cheaper — it removes the *searching*. When there is no searching to remove, it removes nothing and charges you for the attempt. When a bug is spread across four files in a large repo, it removes almost all of it.
+
+If your work looks like T01, you don't need this. If it looks like T08 or T09, you very much do.
+
+### What is not proven yet
+
+- **Quality equivalence.** Task tests pass on both sides and every run was independently tested, linted, typechecked and read by hand — the model's own "I verified it" was never accepted as evidence. But a third-party *blind* score comparison is still pending. "No quality loss" is the goal, not a finished measurement.
+- **Generality.** Nine tasks, one repository, TypeScript only. T11–T40 and a second independent labeller are still open.
+
+Published because a benchmark that reports only its wins is not a benchmark.
 
 ---
 
@@ -19,12 +60,12 @@ Named after the Norse Norn of the present — the one who sees what *is*, not wh
 ```
 WITHOUT VERÐANDI                          WITH VERÐANDI
 ─────────────────────────────────         ─────────────────────────────────
- Task: "fix the auth retry bug"            Task: "fix the auth retry bug"
+ "fix the auth retry bug"                  "fix the auth retry bug"
         │                                         │
         ▼                                         ▼
  ┌──────────────────────┐                  ┌──────────────────────┐
- │ agent: ls, grep, cat │  ← tokens        │ Verðandi indexes the │  ← no model
- │ reads a file… wrong  │  ← tokens        │ repo with the TS AST │     tokens
+ │ ls, grep, cat        │  ← tokens        │ index with the TS    │  ← no model
+ │ reads a file… wrong  │  ← tokens        │ compiler API         │     tokens
  │ reads another…       │  ← tokens        └──────────┬───────────┘
  │ searches again…      │  ← tokens                   │
  │ finally finds it     │  ← tokens                   ▼
@@ -37,98 +78,69 @@ WITHOUT VERÐANDI                          WITH VERÐANDI
                                                 starts working
 ```
 
-That search is invisible on your bill. It just looks like "the task was expensive".
-
----
-
-## What it actually saves
-
-Ten real tasks, taken from commit pairs in [`modelcontextprotocol/typescript-sdk`](https://github.com/modelcontextprotocol/typescript-sdk). Same model, same settings — baseline agent vs. the same agent with Verðandi:
-
-| Task group | Input tokens | Wall time |
-|---|---:|---:|
-| T01–T04 | **−36.9%** | −22.4% |
-| T01–T03 | **−52.7%** | — |
-| T05–T06 | **−55.3%** | −11.0% |
-| T07–T08 | **−74.2%** | −45.3% |
-| T09–T10 | **−79.8%** | −55.1% |
-
-Every run was independently tested, linted, typechecked and read by hand. **The model's own "I verified it" was not accepted as evidence.**
-
-The spread is the honest part: savings scale with how much *searching* a task needs. A one-line import-order fix saves nothing and can even cost more. A bug spread across four files is where 70–80% shows up.
-
-### Not proven yet
-
-- **Quality equivalence.** Task tests pass on both sides, but a third-party blind comparison score is still pending. "No quality loss" is the goal, not a finished measurement.
-- **Generality.** Ten tasks, one repository, TypeScript only. T11–T40 and a second independent labeller remain open.
-
-Published because a benchmark that only reports its wins is not a benchmark.
+That search is invisible on your bill. It just looks like *"the task was expensive"*.
 
 ---
 
 ## How it works
 
-```
-  your task ──▶ ┌─────────────────────────────────────────────┐
-                │ 1. INDEX     TypeScript compiler API:       │
-                │              symbols, imports, call graph   │
-                ├─────────────────────────────────────────────┤
-                │ 2. SELECT    direct matches, plus 1-hop     │
-                │              neighbours in the call graph   │
-                ├─────────────────────────────────────────────┤
-                │ 3. BUDGET    200–300 tokens normally;       │
-                │              wider when confidence is low   │
-                ├─────────────────────────────────────────────┤
-                │ 4. SERVE     capsule over MCP, or injected  │
-                │              straight into the prompt       │
-                └──────────────────┬──────────────────────────┘
-                                   ▼
-                            agent does the work
-                                   │
-                ┌──────────────────▼──────────────────────────┐
-                │ 5. PATCH     content-hash preconditions,    │
-                │              atomic multi-file, rollback    │
-                └─────────────────────────────────────────────┘
+```mermaid
+flowchart LR
+    A["Your task"] --> B["1 · INDEX<br/>TypeScript compiler API<br/>symbols · imports · call graph"]
+    B --> C["2 · SELECT<br/>direct matches +<br/>1-hop call-graph neighbours"]
+    C --> D{"confidence<br/>≥ 0.72?"}
+    D -- yes --> E["3 · BUDGET<br/>200–300 tokens"]
+    D -- no --> F["3b · ESCALATE<br/>wider budget<br/>max 3 attempts"]
+    F --> E
+    E --> G["4 · SERVE<br/>capsule over MCP<br/>or injected in the prompt"]
+    G --> H["Agent does the work"]
+    H --> I["5 · PATCH<br/>content-hash preconditions<br/>atomic · rollback"]
 ```
 
-When retrieval confidence falls below `0.72`, Verðandi silently escalates to a wider budget instead of handing over a thin capsule and hoping. After three attempts it stops and hands the task to a human rather than spending more budget on guesses.
+When confidence stays low after three attempts, Verðandi stops and hands the task to a human instead of spending more budget on guesses.
 
 ---
 
 ## Quick start
 
 ```bash
-npm install
-npm run build
-npm test
+git clone https://github.com/natureco-official/verdandi.git
+cd verdandi
+npm install && npm run build && npm test
 ```
 
-Then choose how to use it.
+Then pick how you want to use it.
 
-### As an MCP server
+<details>
+<summary><b>As an MCP server</b> — codex, claude, opencode, natureco, hermes, openclaw, kimi, glm, antigravity</summary>
 
 ```bash
 node bin/verdandi-context-compiler setup codex   # prints the registration command
 node bin/verdandi-context-compiler status
 ```
 
-Supported: `codex`, `claude`, `opencode`, `natureco`, `hermes`, `openclaw`, `kimi`, `glm`, `antigravity`.
+Run `npm start` to start the stdio server directly. Wire compatibility is continuously tested against the pinned official `@modelcontextprotocol/client@2.0.0`, on both the legacy `initialize` and the 2026-07-28 `server/discover` flow.
+</details>
 
-### Injected into the prompt
+<details>
+<summary><b>Injected into the prompt</b> — no MCP client needed</summary>
 
 ```bash
 ./run_with_capsule.sh <agent> <project-root> "Your task"
 ```
 
-Auto-inject supports `natureco`, `hermes`, `codex`, `claude`, `opencode`, `openclaw`, `kimi`, `glm`. `antigravity` works as an MCP server but has no auto-inject entry yet.
+Supports `natureco`, `hermes`, `codex`, `claude`, `opencode`, `openclaw`, `kimi`, `glm`. `antigravity` works as an MCP server but has no auto-inject entry yet.
+</details>
 
-### As a standalone agent
+<details>
+<summary><b>As a standalone agent</b></summary>
 
 ```bash
 verdandi-agent "Fix the import order" --project ./project --model gpt-4o --api-key "$VERDANDI_API_KEY"
 ```
 
 Environment: `VERDANDI_API_KEY`, `VERDANDI_MODEL`, `VERDANDI_BASE_URL`, `VERDANDI_REQUEST_TIMEOUT_MS`, `VERDANDI_CODEX_MODEL`. Legacy `URDR_*` names still work.
+</details>
 
 ---
 
@@ -182,7 +194,7 @@ Windows joined the matrix on 2026-07-28. Until then only Linux and macOS ran, an
 
 ## Retrieval quality
 
-Measured against the SDK repository. Most recent independent run (2026-07-28, base `cc4b416`):
+Most recent independent run (2026-07-28, base `cc4b416`):
 
 | Metric | Result | Threshold |
 |---|---:|---:|
@@ -197,16 +209,13 @@ An earlier run reported 100% for `hit@1` and symbol recall, but those numbers **
 
 ---
 
-## Nature.co ecosystem
+## More from NatureCo
 
-| Project | What it does |
-|---|---|
-| [Urðr](https://github.com/natureco-official/urdr) | Tree-structured persistent memory for agents |
-| **Verðandi** | Task context — this repository |
-| [CodeDNA](https://github.com/natureco-official/codedna) | Measures AI authorship and understanding debt |
-| [NatureCo CLI](https://github.com/natureco-official/natureco-cli) | Terminal client for the platform |
-| [NatureCo SDK](https://github.com/natureco-official/natureco-sdk) | JavaScript SDK |
-| [Cupertino Terminal](https://github.com/natureco-official/cupertino-terminal) | Native terminal with an encrypted P2P remote shell |
+- [**Urðr**](https://github.com/natureco-official/urdr) — Tree-structured memory for AI coding agents — plain Markdown you can `git diff`, no vector database
+- [**Cupertino Terminal**](https://github.com/natureco-official/cupertino-terminal) — A macOS-grade terminal for Windows, macOS and Linux — Rust core, no Electron, with a built-in end-to-end encrypted P2P remote shell
+- [**NatureCo CLI**](https://github.com/natureco-official/natureco-cli) — A terminal-native AI assistant: chat, a coding agent, automation, and bots on Telegram, Discord and Slack
+- [**CodeDNA**](https://github.com/natureco-official/codedna) — How much of a commit was written by AI, and does its author actually understand it?
+- [**NatureCo SDK**](https://github.com/natureco-official/natureco-sdk) — JavaScript SDK for the NatureCo API — build AI chatbots and ship them anywhere
 
 Urðr remembers across sessions. Verðandi decides what matters *right now*. They stay separate on purpose: Verðandi keeps no session history and stores no large code fragments.
 
@@ -215,3 +224,5 @@ Architecture notes and per-agent commands live in [`UNIVERSAL.md`](UNIVERSAL.md)
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+<sub>Part of the **NatureCo** ecosystem — [natureco.me](https://natureco.me) · NatureCo ekosisteminin parçası</sub>
