@@ -1,0 +1,2 @@
+Görev: Initialize isteğinde önceden kalmış session id gönderilmesini engelle; session id'yi yalnızca initialize yanıtından yakala.
+Başarı kriteri: Initialize request session header taşımaz; response header sonraki isteklerde kullanılır; yeniden initialize senaryosu test edilir.

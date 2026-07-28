@@ -1,0 +1,2 @@
+Görev: Middleware paketlerinin declaration build sırasında workspace type graph'ını bundle edip dts üretiminde OOM oluşturmasını engelle; public tip yüzeyini koru.
+Başarı kriteri: Express/Fastify/Hono/Node declaration build'leri workspace graph'ını gömmeden tamamlanır; yayımlanan tip importları çözümlenir.

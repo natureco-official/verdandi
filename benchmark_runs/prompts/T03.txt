@@ -1,0 +1,2 @@
+Görev: Cloudflare Workers entegrasyon testinden sonra `workerd` süreçlerinin sızmasını ve sonraki koşumların eski portlarda asılı kalmasını önle.
+Başarı kriteri: Başarılı ve hatalı test yollarında child process kapanır; tekrar koşum stale port nedeniyle asılı kalmaz.

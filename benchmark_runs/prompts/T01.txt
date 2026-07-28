@@ -1,0 +1,2 @@
+Görev: Client auth modülündeki import sıralamasını depo lint kurallarına uygun hale getir; davranışı değiştirme.
+Başarı kriteri: İlgili dosya lint kontrolünü geçer; çalışma zamanı davranışı ve public API değişmez.

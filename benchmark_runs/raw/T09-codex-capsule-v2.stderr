@@ -1,0 +1,3 @@
+Reading additional input from stdin...
+2026-07-28T18:12:30.997533Z ERROR codex_core::tools::router: error=apply_patch verification failed: Failed to find expected lines in /private/tmp/capsule-quality-v2/T09-codex-capsule/packages/client/test/client/responseCache.test.ts:
+        expect((entry?.value as { tools: Tool[] }).tools.map(t => t.name)).toEqual(['a', 'b', 'a']);

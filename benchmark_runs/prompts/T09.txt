@@ -1,0 +1,2 @@
+Görev: Client response cache'i runtime nesneleri yerine serialize edilmiş protocol document'ları saklayacak biçimde değiştir ve `structuredClone` bağımlılığını kaldır.
+Başarı kriteri: Cache codec round-trip testleri, parametre aynalama ve response cache testleri geçer; cache hit davranışı ve public API korunur.

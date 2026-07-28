@@ -1,0 +1,292 @@
+You are an independent senior TypeScript code reviewer. Compare two anonymized solutions to the same task.
+
+Rules:
+- Use only the task, patches, and validation summaries below. Do not use tools or infer author/model identity.
+- Passing tests are evidence, not proof. Inspect edge cases, scope, cleanup, concurrency, public API, and regression risk.
+- Penalize unnecessary edits and tests that do not actually prove the requested behavior.
+- Score each dimension from 1 (poor) to 5 (excellent).
+- Prefer X, Y, or tie. A tie is valid when patches are materially equivalent.
+- confidence MUST be a decimal number from 0 through 1 (for example 0.85), never a percentage.
+- Return only one JSON object. Do not use Markdown fences.
+
+Required JSON shape:
+{"schemaVersion":1,"taskId":"T06","preference":"X|Y|tie","confidence":0.0,"solutions":{"X":{"correctness":1,"coverage":1,"simplicity":1,"maintainability":1,"regressionSafety":1,"strengths":[],"fatalFlaws":[]},"Y":{"correctness":1,"coverage":1,"simplicity":1,"maintainability":1,"regressionSafety":1,"strengths":[],"fatalFlaws":[]}},"rationale":"max 2000 chars","requiredFollowups":[]}
+
+TASK
+Görev: Standart MCP header değerlerini doğrulamadan önce optional whitespace'i (OWS) kırp; iç değeri gevşek eşleştirme.
+Başarı kriteri: Baştaki/sondaki space ve tab kabul edilir; yanlış iç değer reddedilir; header doğrulama testleri geçer.
+
+SOLUTION X VALIDATION
+[{"kind":"test","status":"PASS","timedOut":false},{"kind":"lint","status":"PASS","timedOut":false},{"kind":"typecheck","status":"PASS","timedOut":false}]
+
+SOLUTION X PATCH
+diff --git a/packages/core-internal/test/shared/standardHeaderValidation.test.ts b/packages/core-internal/test/shared/standardHeaderValidation.test.ts
+index 8a15037..94ad083 100644
+--- a/packages/core-internal/test/shared/standardHeaderValidation.test.ts
++++ b/packages/core-internal/test/shared/standardHeaderValidation.test.ts
+@@ -71,6 +71,25 @@ describe('SEP-2243 standard-header validation (Mcp-Method presence)', () => {
+         expect(validateStandardRequestHeaders(request, route)).toBeUndefined();
+     });
+ 
++    test('space and tab OWS around standard header values is accepted', () => {
++        const { request, route } = modernPost(
++            'tools/call',
++            { name: 'echo', arguments: {} },
++            { mcpMethod: '\t tools/call \t', mcpName: ' \techo\t ' }
++        );
++        expect(validateStandardRequestHeaders(request, route)).toBeUndefined();
++    });
++
++    test('whitespace inside an Mcp-Method value is not ignored', () => {
++        const outcome = classifyInboundRequest({
++            httpMethod: 'POST',
++            protocolVersionHeader: `\t${MODERN} `,
++            mcpMethodHeader: ' tools/ call\t',
++            body: { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'echo', arguments: {}, _meta: ENVELOPE } }
++        });
++        expect(outcome).toMatchObject({ kind: 'reject', cell: 'method-header-mismatch' });
++    });
++
+     test('the Mcp-Method mismatch cell stays inside classifyInboundRequest (precedence over presence)', () => {
+         // The mismatch is answered by the classifier itself; this function
+         // never sees a route for that input. Asserted here so the
+@@ -128,6 +147,15 @@ describe('SEP-2243 standard-header validation (Mcp-Name presence and cross-check
+         expect((result?.data as { mismatch?: { header?: string } })?.mismatch?.header).toBe('wrong_tool_name');
+     });
+ 
++    test('whitespace inside an Mcp-Name value is not ignored', () => {
++        const { request, route } = modernPost(
++            'tools/call',
++            { name: 'echo', arguments: {} },
++            { mcpMethod: 'tools/call', mcpName: ' e cho\t' }
++        );
++        expectRejection(validateStandardRequestHeaders(request, route), 'name-header-mismatch');
++    });
++
+     test('a Base64-sentinel Mcp-Name decodes before comparison (matching)', () => {
+         const { request, route } = modernPost(
+             'tools/call',
+diff --git a/packages/core-internal/src/shared/inboundClassification.ts b/packages/core-internal/src/shared/inboundClassification.ts
+index 35f694c..1fd8e1d 100644
+--- a/packages/core-internal/src/shared/inboundClassification.ts
++++ b/packages/core-internal/src/shared/inboundClassification.ts
+@@ -464,6 +464,11 @@ export const MCP_NAME_HEADER_SOURCE: Readonly<Record<string, 'name' | 'uri'>> =
+     'resources/read': 'uri'
+ };
+ 
++/** Strip RFC 9110 optional whitespace without altering whitespace inside a field value. */
++function trimHeaderOws(value: string): string {
++    return value.replaceAll(/^[\t ]+|[\t ]+$/g, '');
++}
++
+ /**
+  * SEP-2243 standard-header server-side validation, evaluated by the HTTP
+  * entry on a modern-classified request immediately after
+@@ -537,7 +542,8 @@ export function validateStandardRequestHeaders(request: InboundHttpRequest, rout
+         );
+     }
+ 
+-    const decoded = decodeMcpParamValue(request.mcpNameHeader);
++    const normalizedNameHeader = trimHeaderOws(request.mcpNameHeader);
++    const decoded = decodeMcpParamValue(normalizedNameHeader);
+     if (decoded === undefined) {
+         return crossCheckMismatch(
+             'name-header-invalid-encoding',
+@@ -644,7 +650,7 @@ function classifyBatch(body: readonly unknown[]): InboundClassificationOutcome {
+ function classifyRequestBody(request: InboundHttpRequest, body: JSONRPCRequest): InboundClassificationOutcome {
+     const params = body.params;
+     const method = body.method;
+-    const headerVersion = request.protocolVersionHeader;
++    const headerVersion = request.protocolVersionHeader === undefined ? undefined : trimHeaderOws(request.protocolVersionHeader);
+     const headerNamesModern = headerVersion !== undefined && isModernProtocolVersion(headerVersion);
+ 
+     // `initialize` is the legacy handshake by definition — unless the request
+@@ -696,11 +702,12 @@ function classifyRequestBody(request: InboundHttpRequest, body: JSONRPCRequest):
+                 `the body envelope names protocol version ${claimedVersion} but the MCP-Protocol-Version header names ${headerVersion}`
+             );
+         }
+-        if (request.mcpMethodHeader !== undefined && request.mcpMethodHeader !== method) {
++        const methodHeader = request.mcpMethodHeader === undefined ? undefined : trimHeaderOws(request.mcpMethodHeader);
++        if (methodHeader !== undefined && methodHeader !== method) {
+             return crossCheckMismatch(
+                 'method-header-mismatch',
+-                request.mcpMethodHeader,
+-                `the body names method ${method} but the Mcp-Method header names ${request.mcpMethodHeader}`
++                methodHeader,
++                `the body names method ${method} but the Mcp-Method header names ${methodHeader}`
+             );
+         }
+         return { kind: 'modern', messageKind: 'request', message: body, classification: classificationForClaim(claimedVersion) };
+@@ -737,7 +744,7 @@ function classifyRequestBody(request: InboundHttpRequest, body: JSONRPCRequest):
+ function classifyNotificationBody(request: InboundHttpRequest, body: JSONRPCNotification): InboundClassificationOutcome {
+     const params = body.params;
+     const method = body.method;
+-    const headerVersion = request.protocolVersionHeader;
++    const headerVersion = request.protocolVersionHeader === undefined ? undefined : trimHeaderOws(request.protocolVersionHeader);
+     const headerNamesModern = headerVersion !== undefined && isModernProtocolVersion(headerVersion);
+ 
+     if (hasEnvelopeClaim(params)) {
+@@ -776,11 +783,12 @@ function classifyNotificationBody(request: InboundHttpRequest, body: JSONRPCNoti
+             );
+         }
+         const classification = classificationForClaim(claimedVersion);
+-        if (classification.era === 'modern' && request.mcpMethodHeader !== undefined && request.mcpMethodHeader !== method) {
++        const methodHeader = request.mcpMethodHeader === undefined ? undefined : trimHeaderOws(request.mcpMethodHeader);
++        if (classification.era === 'modern' && methodHeader !== undefined && methodHeader !== method) {
+             return crossCheckMismatch(
+                 'notification-method-header-mismatch',
+-                request.mcpMethodHeader,
+-                `the notification body names method ${method} but the Mcp-Method header names ${request.mcpMethodHeader}`
++                methodHeader,
++                `the notification body names method ${method} but the Mcp-Method header names ${methodHeader}`
+             );
+         }
+         return { kind: 'modern', messageKind: 'notification', message: body, classification };
+@@ -793,11 +801,12 @@ function classifyNotificationBody(request: InboundHttpRequest, body: JSONRPCNoti
+     // the notification classifies modern — it is never enforced on legacy
+     // notifications.
+     if (headerNamesModern) {
+-        if (request.mcpMethodHeader !== undefined && request.mcpMethodHeader !== method) {
++        const methodHeader = request.mcpMethodHeader === undefined ? undefined : trimHeaderOws(request.mcpMethodHeader);
++        if (methodHeader !== undefined && methodHeader !== method) {
+             return crossCheckMismatch(
+                 'notification-method-header-mismatch',
+-                request.mcpMethodHeader,
+-                `the notification body names method ${method} but the Mcp-Method header names ${request.mcpMethodHeader}`
++                methodHeader,
++                `the notification body names method ${method} but the Mcp-Method header names ${methodHeader}`
+             );
+         }
+         return {
+
+
+SOLUTION Y VALIDATION
+[{"kind":"test","status":"PASS","timedOut":false},{"kind":"lint","status":"PASS","timedOut":false},{"kind":"typecheck","status":"PASS","timedOut":false}]
+
+SOLUTION Y PATCH
+diff --git a/packages/core-internal/src/shared/inboundClassification.ts b/packages/core-internal/src/shared/inboundClassification.ts
+index 35f694c..2dc0795 100644
+--- a/packages/core-internal/src/shared/inboundClassification.ts
++++ b/packages/core-internal/src/shared/inboundClassification.ts
+@@ -77,6 +77,11 @@ import { envelopeClaimVersion, hasEnvelopeClaim, requestMetaOf, validateEnvelope
+ import { decodeMcpParamValue } from './mcpParamHeaders';
+ import { isModernProtocolVersion } from './protocolEras';
+ 
++/** Remove RFC 9110 optional whitespace without accepting any other characters. */
++function trimHeaderOws(value: string): string {
++    return value.replaceAll(/^[ \t]+|[ \t]+$/g, '');
++}
++
+ /* ------------------------------------------------------------------------ *
+  * Classifier input
+  * ------------------------------------------------------------------------ */
+@@ -537,7 +542,8 @@ export function validateStandardRequestHeaders(request: InboundHttpRequest, rout
+         );
+     }
+ 
+-    const decoded = decodeMcpParamValue(request.mcpNameHeader);
++    const mcpNameHeader = trimHeaderOws(request.mcpNameHeader);
++    const decoded = decodeMcpParamValue(mcpNameHeader);
+     if (decoded === undefined) {
+         return crossCheckMismatch(
+             'name-header-invalid-encoding',
+@@ -824,7 +830,19 @@ export function classifyInboundRequest(request: InboundHttpRequest): InboundClas
+         return { kind: 'legacy', reason: 'http-method' };
+     }
+ 
+-    const body = request.body;
++    // RFC 9110 permits optional SP / HTAB around field values. Normalize only
++    // that edge whitespace before validating the standard MCP headers; the
++    // remaining value is still compared exactly with the body.
++    const normalizedRequest: InboundHttpRequest = {
++        ...request,
++        ...(request.protocolVersionHeader !== undefined && {
++            protocolVersionHeader: trimHeaderOws(request.protocolVersionHeader)
++        }),
++        ...(request.mcpMethodHeader !== undefined && { mcpMethodHeader: trimHeaderOws(request.mcpMethodHeader) }),
++        ...(request.mcpNameHeader !== undefined && { mcpNameHeader: trimHeaderOws(request.mcpNameHeader) })
++    };
++
++    const body = normalizedRequest.body;
+     if (Array.isArray(body)) {
+         return classifyBatch(body);
+     }
+@@ -835,10 +853,10 @@ export function classifyInboundRequest(request: InboundHttpRequest): InboundClas
+         return { kind: 'legacy', reason: 'response' };
+     }
+     if (isPlainObject(body) && isJSONRPCRequest(body)) {
+-        return classifyRequestBody(request, body);
++        return classifyRequestBody(normalizedRequest, body);
+     }
+     if (isPlainObject(body) && isJSONRPCNotification(body)) {
+-        return classifyNotificationBody(request, body);
++        return classifyNotificationBody(normalizedRequest, body);
+     }
+     return rejection(
+         'jsonrpc-shape',
+diff --git a/packages/core-internal/test/shared/inboundClassification.test.ts b/packages/core-internal/test/shared/inboundClassification.test.ts
+index 16017d7..e216176 100644
+--- a/packages/core-internal/test/shared/inboundClassification.test.ts
++++ b/packages/core-internal/test/shared/inboundClassification.test.ts
+@@ -278,6 +278,20 @@ describe('header cross-checks (-32020 HeaderMismatch) and the missing-envelope r
+         expect(outcome.kind).toBe('modern');
+     });
+ 
++    test('standard header comparisons ignore leading and trailing SP / HTAB only', () => {
++        const outcome = classifyInboundRequest(
++            post(modernToolsCall(), { protocolVersion: ` \t${MODERN_REVISION}\t `, mcpMethod: ' \ttools/call\t ' })
++        );
++        expect(outcome.kind).toBe('modern');
++
++        expectMismatch(
++            classifyInboundRequest(
++                post(modernToolsCall(), { protocolVersion: ` \t${MODERN_REVISION}-wrong\t `, mcpMethod: ' \ttools/call\t ' })
++            ),
++            'header-body-version-mismatch'
++        );
++    });
++
+     test('the Mcp-Method header is never enforced on legacy requests', () => {
+         const outcome = classifyInboundRequest(post(legacyToolsList(), { protocolVersion: '2025-06-18', mcpMethod: 'tools/call' }));
+         expect(outcome).toMatchObject({ kind: 'legacy', reason: 'no-claim' });
+diff --git a/packages/core-internal/test/shared/standardHeaderValidation.test.ts b/packages/core-internal/test/shared/standardHeaderValidation.test.ts
+index 8a15037..d9a7675 100644
+--- a/packages/core-internal/test/shared/standardHeaderValidation.test.ts
++++ b/packages/core-internal/test/shared/standardHeaderValidation.test.ts
+@@ -71,6 +71,20 @@ describe('SEP-2243 standard-header validation (Mcp-Method presence)', () => {
+         expect(validateStandardRequestHeaders(request, route)).toBeUndefined();
+     });
+ 
++    test('Mcp-Method accepts leading and trailing OWS but still rejects a wrong inner value', () => {
++        const padded = modernPost('tools/list', {}, { mcpMethod: ' \ttools/list\t ' });
++        expect(validateStandardRequestHeaders(padded.request, padded.route)).toBeUndefined();
++
++        expect(
++            classifyInboundRequest({
++                httpMethod: 'POST',
++                protocolVersionHeader: MODERN,
++                mcpMethodHeader: ' \ttools/call\t ',
++                body: { jsonrpc: '2.0', id: 1, method: 'tools/list', params: { _meta: ENVELOPE } }
++            })
++        ).toMatchObject({ kind: 'reject', cell: 'method-header-mismatch' });
++    });
++
+     test('the Mcp-Method mismatch cell stays inside classifyInboundRequest (precedence over presence)', () => {
+         // The mismatch is answered by the classifier itself; this function
+         // never sees a route for that input. Asserted here so the
+@@ -162,6 +176,14 @@ describe('SEP-2243 standard-header validation (Mcp-Name presence and cross-check
+         expect(validateStandardRequestHeaders(request, route)).toBeUndefined();
+     });
+ 
++    test('Mcp-Name accepts leading and trailing OWS but still rejects a wrong inner value', () => {
++        const matching = modernPost('tools/call', { name: 'echo', arguments: {} }, { mcpMethod: 'tools/call', mcpName: ' \techo\t ' });
++        expect(validateStandardRequestHeaders(matching.request, matching.route)).toBeUndefined();
++
++        const wrong = modernPost('tools/call', { name: 'echo', arguments: {} }, { mcpMethod: 'tools/call', mcpName: ' \tnot-echo\t ' });
++        expectRejection(validateStandardRequestHeaders(wrong.request, wrong.route), 'name-header-mismatch');
++    });
++
+     test('a matching Mcp-Name on a resources/read compares against params.uri', () => {
+         const uri = 'file:///projects/app/config.json';
+         const { request, route } = modernPost('resources/read', { uri }, { mcpMethod: 'resources/read', mcpName: uri });
+

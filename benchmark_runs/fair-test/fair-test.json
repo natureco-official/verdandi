@@ -1,0 +1,88 @@
+{
+  "openclaw-nocapsule": {
+    "label": "openclaw-nocapsule",
+    "durationMs": 127039,
+    "inputTokens": 77111,
+    "outputTokens": 3014,
+    "cacheReadTokens": 1011072,
+    "reasoningTokens": 839,
+    "totalTokens": 87323,
+    "toolCalls": 26,
+    "toolsUsed": [
+      "exec",
+      "memory_search",
+      "sessions_list",
+      "read"
+    ],
+    "toolsFailed": 1,
+    "outputLength": 0,
+    "outputPreview": ""
+  },
+  "openclaw-capsule": {
+    "label": "openclaw-capsule",
+    "durationMs": 125344,
+    "inputTokens": 13445,
+    "outputTokens": 3867,
+    "cacheReadTokens": 480640,
+    "reasoningTokens": 1423,
+    "totalTokens": 497952,
+    "toolCalls": 34,
+    "toolsUsed": [
+      "read",
+      "exec",
+      "memory_search",
+      "process"
+    ],
+    "toolsFailed": 0,
+    "outputLength": 0,
+    "outputPreview": ""
+  },
+  "hermes-nocapsule": {
+    "label": "hermes-nocapsule",
+    "durationMs": 54320,
+    "exitCode": 0,
+    "inputTokens": -1,
+    "outputTokens": -1,
+    "totalTokens": -1,
+    "estimatedToolCalls": 34,
+    "outputLength": 4748,
+    "outputPreview": "───────────────────────────────────────────────────────────── \r\n\r\n⚠ Iteration budget reached (8/8) — response may be incomplete\r\n\nResume this session with:\n  hermes --resume 20260727_235831_d06f79\n\nSession:        20260727_235831_d06f79\nDuration:       52s\nMessages:       27 (2 user, 24 tool calls)\n",
+    "note": "Hermes token verisi raporlamaz"
+  },
+  "hermes-capsule": {
+    "label": "hermes-capsule",
+    "durationMs": 82690,
+    "exitCode": 0,
+    "inputTokens": -1,
+    "outputTokens": -1,
+    "totalTokens": -1,
+    "estimatedToolCalls": 43,
+    "outputLength": 5845,
+    "outputPreview": "────────────────────────────────────────────────────────── \r\n\r\n⚠ Iteration budget reached (8/8) — response may be incomplete\r\n\nResume this session with:\n  hermes --resume 20260727_235926_1fefc8\n\nSession:        20260727_235926_1fefc8\nDuration:       1m 20s\nMessages:       26 (2 user, 23 tool calls)\n",
+    "note": "Hermes token verisi raporlamaz"
+  },
+  "natureco-nocapsule": {
+    "label": "natureco-nocapsule",
+    "durationMs": 54530,
+    "exitCode": 0,
+    "inputTokens": -1,
+    "outputTokens": -1,
+    "totalTokens": -1,
+    "estimatedToolCalls": 0,
+    "outputLength": 501,
+    "outputPreview": "/...` import'ları ortada\n3. Relative `./authErrors` import'u en alta\n4. `import type` + `import` ayrı bloklar yerine tek blokta birleştirildi — `type` keyword'ü inline kullanıldı (`import { type X, Y }`)\n\nESLint ve Prettier kontrolleri geçti. Davranış değişmedi, sadece import sıralaması düzeltildi.\n",
+    "note": "NatureCo token verisi raporlamaz, sadece tool call ve output length"
+  },
+  "natureco-capsule": {
+    "label": "natureco-capsule",
+    "durationMs": 143614,
+    "exitCode": 2,
+    "inputTokens": -1,
+    "outputTokens": -1,
+    "totalTokens": -1,
+    "estimatedToolCalls": 0,
+    "outputLength": 86,
+    "outputPreview": "ESLint'in autofix'i bir türlü düzgün çalışmıyor. Import sıralamasını düzgün yapalım:\n\n",
+    "note": "NatureCo token verisi raporlamaz, sadece tool call ve output length"
+  }
+}

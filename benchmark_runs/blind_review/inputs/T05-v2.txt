@@ -1,0 +1,186 @@
+You are an independent senior TypeScript code reviewer. Compare two anonymized solutions to the same task.
+
+Rules:
+- Use only the task, patches, and validation summaries below. Do not use tools or infer author/model identity.
+- Passing tests are evidence, not proof. Inspect edge cases, scope, cleanup, concurrency, public API, and regression risk.
+- Treat every explicit success criterion as a requirement; unrelated cleanup cannot compensate for violating one.
+- Preserving a public API includes exported TypeScript source compatibility unless the task explicitly permits a breaking change.
+- Penalize unnecessary edits and tests that do not actually prove the requested behavior.
+- Score each dimension from 1 (poor) to 5 (excellent).
+- Prefer X, Y, or tie. A tie is valid when patches are materially equivalent.
+- confidence MUST be a decimal number from 0 through 1 (for example 0.85), never a percentage.
+- Return only one syntactically valid JSON object. Escape every quote inside string values; do not use Markdown fences.
+
+Required JSON shape:
+{"schemaVersion":1,"taskId":"T05","preference":"X|Y|tie","confidence":0.0,"solutions":{"X":{"correctness":1,"coverage":1,"simplicity":1,"maintainability":1,"regressionSafety":1,"strengths":[],"fatalFlaws":[]},"Y":{"correctness":1,"coverage":1,"simplicity":1,"maintainability":1,"regressionSafety":1,"strengths":[],"fatalFlaws":[]}},"rationale":"max 2000 chars","requiredFollowups":[]}
+
+TASK
+Görev: Server resource URI'si çözümlenemediğinde genel/internal hata yerine MCP `Invalid Params` hatası döndür.
+Başarı kriteri: Malformed URI entegrasyon testi `Invalid Params` kodunu doğrular; geçerli resource istekleri etkilenmez.
+
+SOLUTION X VALIDATION
+[{"kind":"test","status":"PASS","timedOut":false},{"kind":"lint","status":"PASS","timedOut":false},{"kind":"typecheck","status":"PASS","timedOut":false}]
+
+SOLUTION X PATCH
+diff --git a/test/integration/test/server/mcp.test.ts b/test/integration/test/server/mcp.test.ts
+index 2597c14..b259aac 100644
+--- a/test/integration/test/server/mcp.test.ts
++++ b/test/integration/test/server/mcp.test.ts
+@@ -2743,6 +2743,46 @@ describe('Zod v4', () => {
+             });
+         });
+ 
++        /***
++         * Test: ProtocolError for Malformed Resource URI
++         */
++        test('should throw Invalid Params for malformed resource URI', async () => {
++            const mcpServer = new McpServer({
++                name: 'test server',
++                version: '1.0'
++            });
++            const client = new Client({
++                name: 'test client',
++                version: '1.0'
++            });
++
++            mcpServer.registerResource('test', 'test://resource', {}, async () => ({
++                contents: [
++                    {
++                        uri: 'test://resource',
++                        text: 'Test content'
++                    }
++                ]
++            }));
++
++            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
++
++            await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
++
++            await expect(
++                client.request({
++                    method: 'resources/read',
++                    params: {
++                        uri: 'not a valid URI'
++                    }
++                })
++            ).rejects.toMatchObject({
++                code: ProtocolErrorCode.InvalidParams,
++                message: expect.stringMatching(/invalid resource uri/i),
++                data: { uri: 'not a valid URI' }
++            });
++        });
++
+         /***
+          * Test: ProtocolError for Disabled Resource
+          */
+diff --git a/packages/server/src/server/mcp.ts b/packages/server/src/server/mcp.ts
+index e0d10b5..61751ee 100644
+--- a/packages/server/src/server/mcp.ts
++++ b/packages/server/src/server/mcp.ts
+@@ -476,7 +476,14 @@ export class McpServer {
+         });
+ 
+         this.server.setRequestHandler('resources/read', async (request, ctx) => {
+-            const uri = new URL(request.params.uri);
++            let uri: URL;
++            try {
++                uri = new URL(request.params.uri);
++            } catch {
++                throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid resource URI: ${request.params.uri}`, {
++                    uri: request.params.uri
++                });
++            }
+ 
+             // First check for exact resource match
+             const resource = this._registeredResources[uri.toString()];
+
+
+SOLUTION Y VALIDATION
+[{"kind":"test","status":"PASS","timedOut":false},{"kind":"lint","status":"PASS","timedOut":false},{"kind":"typecheck","status":"PASS","timedOut":false}]
+
+SOLUTION Y PATCH
+diff --git a/test/integration/test/server/mcp.test.ts b/test/integration/test/server/mcp.test.ts
+index 2597c14..7accfef 100644
+--- a/test/integration/test/server/mcp.test.ts
++++ b/test/integration/test/server/mcp.test.ts
+@@ -2743,6 +2743,58 @@ describe('Zod v4', () => {
+             });
+         });
+ 
++        test('should return InvalidParams for a malformed resource URI without affecting valid reads', async () => {
++            const mcpServer = new McpServer({
++                name: 'test server',
++                version: '1.0'
++            });
++            const client = new Client({
++                name: 'test client',
++                version: '1.0'
++            });
++
++            mcpServer.registerResource('test', 'test://resource', {}, async uri => ({
++                contents: [
++                    {
++                        uri: uri.toString(),
++                        text: 'Test content'
++                    }
++                ]
++            }));
++
++            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
++
++            await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
++
++            await expect(
++                client.request({
++                    method: 'resources/read',
++                    params: {
++                        uri: '://malformed'
++                    }
++                })
++            ).rejects.toMatchObject({
++                code: ProtocolErrorCode.InvalidParams,
++                message: expect.stringMatching(/invalid resource URI/i)
++            });
++
++            await expect(
++                client.request({
++                    method: 'resources/read',
++                    params: {
++                        uri: 'test://resource'
++                    }
++                })
++            ).resolves.toMatchObject({
++                contents: [
++                    {
++                        uri: 'test://resource',
++                        text: 'Test content'
++                    }
++                ]
++            });
++        });
++
+         /***
+          * Test: ProtocolError for Disabled Resource
+          */
+diff --git a/packages/server/src/server/mcp.ts b/packages/server/src/server/mcp.ts
+index e0d10b5..a8457f3 100644
+--- a/packages/server/src/server/mcp.ts
++++ b/packages/server/src/server/mcp.ts
+@@ -476,7 +476,15 @@ export class McpServer {
+         });
+ 
+         this.server.setRequestHandler('resources/read', async (request, ctx) => {
+-            const uri = new URL(request.params.uri);
++            let uri: URL;
++            try {
++                uri = new URL(request.params.uri);
++            } catch {
++                throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid resource URI: ${request.params.uri}`, {
++                    uri: request.params.uri,
++                    reason: 'malformed'
++                });
++            }
+ 
+             // First check for exact resource match
+             const resource = this._registeredResources[uri.toString()];
+

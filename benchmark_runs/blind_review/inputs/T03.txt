@@ -1,0 +1,372 @@
+You are an independent senior TypeScript code reviewer. Compare two anonymized solutions to the same task.
+
+Rules:
+- Use only the task, patches, and validation summaries below. Do not use tools or infer author/model identity.
+- Passing tests are evidence, not proof. Inspect edge cases, scope, cleanup, concurrency, public API, and regression risk.
+- Penalize unnecessary edits and tests that do not actually prove the requested behavior.
+- Score each dimension from 1 (poor) to 5 (excellent).
+- Prefer X, Y, or tie. A tie is valid when patches are materially equivalent.
+- Return only one JSON object. Do not use Markdown fences.
+
+Required JSON shape:
+{"schemaVersion":1,"taskId":"T03","preference":"X|Y|tie","confidence":0.0,"solutions":{"X":{"correctness":1,"coverage":1,"simplicity":1,"maintainability":1,"regressionSafety":1,"strengths":[],"fatalFlaws":[]},"Y":{"correctness":1,"coverage":1,"simplicity":1,"maintainability":1,"regressionSafety":1,"strengths":[],"fatalFlaws":[]}},"rationale":"max 2000 chars","requiredFollowups":[]}
+
+TASK
+Görev: Cloudflare Workers entegrasyon testinden sonra `workerd` süreçlerinin sızmasını ve sonraki koşumların eski portlarda asılı kalmasını önle.
+Başarı kriteri: Başarılı ve hatalı test yollarında child process kapanır; tekrar koşum stale port nedeniyle asılı kalmaz.
+
+SOLUTION X VALIDATION
+[{"kind":"test","status":"PASS","timedOut":false},{"kind":"lint","status":"PASS","timedOut":false},{"kind":"typecheck","status":"ACCEPTED_BASELINE_FAILURE","timedOut":false}]
+
+SOLUTION X PATCH
+diff --git a/test/integration/test/server/cloudflareWorkers.test.ts b/test/integration/test/server/cloudflareWorkers.test.ts
+index c32f1dc..5c8343d 100644
+--- a/test/integration/test/server/cloudflareWorkers.test.ts
++++ b/test/integration/test/server/cloudflareWorkers.test.ts
+@@ -17,6 +17,43 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+ const PORT = 8787;
+ const READINESS_TIMEOUT_MS = 60_000;
+ const READINESS_POLL_INTERVAL_MS = 100;
++const SHUTDOWN_TIMEOUT_MS = 5000;
++
++function signalProcessGroup(proc: ChildProcess, signal: NodeJS.Signals | 0): boolean {
++    if (proc.pid === undefined) {
++        return false;
++    }
++
++    try {
++        // Wrangler starts workerd as a child process. Signalling the detached process group keeps
++        // that grandchild from surviving after the npx/wrangler wrapper exits.
++        process.kill(-proc.pid, signal);
++        return true;
++    } catch (error) {
++        if (['EPERM', 'ESRCH'].includes((error as NodeJS.ErrnoException).code ?? '')) {
++            return false;
++        }
++        throw error;
++    }
++}
++
++async function stopProcessGroup(proc: ChildProcess): Promise<void> {
++    if (!signalProcessGroup(proc, 'SIGTERM')) {
++        return;
++    }
++
++    if (proc.exitCode === null && proc.signalCode === null) {
++        const closed = await Promise.race([
++            new Promise<boolean>(resolve => proc.once('close', () => resolve(true))),
++            new Promise<boolean>(resolve => setTimeout(() => resolve(false), SHUTDOWN_TIMEOUT_MS))
++        ]);
++        if (closed) {
++            return;
++        }
++    }
++
++    signalProcessGroup(proc, 'SIGKILL');
++}
+ 
+ /**
+  * Wait until the worker can serve a real MCP `initialize` request.
+@@ -149,29 +186,31 @@ export default {
+         // parsing wrangler's stdout — see waitForMcpReady for the reasoning.
+         const proc = spawn('npx', ['wrangler', 'dev', '--local', '--port', String(PORT)], {
+             cwd: tempDir,
+-            shell: true,
++            detached: true,
+             stdio: 'pipe'
+         });
+ 
+-        try {
+-            await waitForMcpReady(proc);
+-        } catch (error) {
+-            proc.kill('SIGTERM');
+-            throw error;
+-        }
+-
++        let cleanedUp = false;
+         cleanup = async () => {
+-            proc.kill('SIGTERM');
+-            await new Promise<void>(resolve => {
+-                proc.on('close', () => resolve());
+-                setTimeout(resolve, 5000);
+-            });
++            if (cleanedUp) {
++                return;
++            }
++            cleanedUp = true;
++
++            await stopProcessGroup(proc);
+             try {
+                 fs.rmSync(tempDir, { recursive: true, force: true });
+             } catch {
+                 // Ignore cleanup errors
+             }
+         };
++
++        try {
++            await waitForMcpReady(proc);
++        } catch (error) {
++            await cleanup();
++            throw error;
++        }
+     }, 120_000);
+ 
+     afterAll(async () => {
+
+
+SOLUTION Y VALIDATION
+[{"kind":"test","status":"PASS","timedOut":false},{"kind":"lint","status":"PASS","timedOut":false},{"kind":"typecheck","status":"ACCEPTED_BASELINE_FAILURE","timedOut":false}]
+
+SOLUTION Y PATCH
+diff --git a/test/integration/test/server/cloudflareWorkers.test.ts b/test/integration/test/server/cloudflareWorkers.test.ts
+index c32f1dc..a7364fc 100644
+--- a/test/integration/test/server/cloudflareWorkers.test.ts
++++ b/test/integration/test/server/cloudflareWorkers.test.ts
+@@ -17,6 +17,77 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+ const PORT = 8787;
+ const READINESS_TIMEOUT_MS = 60_000;
+ const READINESS_POLL_INTERVAL_MS = 100;
++const READINESS_REQUEST_TIMEOUT_MS = 1000;
++const PROCESS_SHUTDOWN_TIMEOUT_MS = 5000;
++
++function isProcessGroupRunning(processGroupId: number): boolean {
++    try {
++        process.kill(-processGroupId, 0);
++        return true;
++    } catch (error) {
++        if ((error as NodeJS.ErrnoException).code === 'ESRCH') {
++            return false;
++        }
++        throw error;
++    }
++}
++
++function signalProcessGroup(processGroupId: number, signal: NodeJS.Signals): void {
++    try {
++        process.kill(-processGroupId, signal);
++    } catch (error) {
++        if ((error as NodeJS.ErrnoException).code !== 'ESRCH') {
++            throw error;
++        }
++    }
++}
++
++async function waitForProcessGroupExit(processGroupId: number, timeoutMs: number): Promise<boolean> {
++    const deadline = Date.now() + timeoutMs;
++    while (Date.now() < deadline) {
++        if (!isProcessGroupRunning(processGroupId)) {
++            return true;
++        }
++        await new Promise(resolve => setTimeout(resolve, 50));
++    }
++    return !isProcessGroupRunning(processGroupId);
++}
++
++/**
++ * Terminate Wrangler and every process it spawned (including workerd).
++ *
++ * On POSIX, Wrangler is started as a process-group leader so signalling the negative PID reaches
++ * the whole tree. On Windows, taskkill's /T option provides the equivalent tree termination.
++ */
++async function terminateProcessTree(proc: ChildProcess): Promise<void> {
++    if (proc.pid === undefined) {
++        return;
++    }
++
++    if (process.platform === 'win32') {
++        await new Promise<void>(resolve => {
++            const taskkill = spawn('taskkill', ['/pid', String(proc.pid), '/T', '/F'], { stdio: 'ignore' });
++            taskkill.once('error', () => resolve());
++            taskkill.once('close', () => resolve());
++        });
++        return;
++    }
++
++    const processGroupId = proc.pid;
++    if (!isProcessGroupRunning(processGroupId)) {
++        return;
++    }
++
++    signalProcessGroup(processGroupId, 'SIGTERM');
++    if (await waitForProcessGroupExit(processGroupId, PROCESS_SHUTDOWN_TIMEOUT_MS)) {
++        return;
++    }
++
++    signalProcessGroup(processGroupId, 'SIGKILL');
++    if (!(await waitForProcessGroupExit(processGroupId, PROCESS_SHUTDOWN_TIMEOUT_MS))) {
++        throw new Error(`Process group ${processGroupId} did not exit after SIGKILL`);
++    }
++}
+ 
+ /**
+  * Wait until the worker can serve a real MCP `initialize` request.
+@@ -52,6 +123,7 @@ async function waitForMcpReady(proc: ChildProcess): Promise<void> {
+         try {
+             const response = await fetch(`http://127.0.0.1:${PORT}/`, {
+                 method: 'POST',
++                signal: AbortSignal.timeout(READINESS_REQUEST_TIMEOUT_MS),
+                 headers: {
+                     'Content-Type': 'application/json',
+                     Accept: 'application/json, text/event-stream'
+@@ -85,44 +157,68 @@ async function waitForMcpReady(proc: ChildProcess): Promise<void> {
+ }
+ 
+ describe('Cloudflare Workers compatibility (no nodejs_compat)', () => {
+-    let cleanup: (() => Promise<void>) | null = null;
++    let tempDir: string | null = null;
++    let proc: ChildProcess | null = null;
+ 
+-    beforeAll(async () => {
+-        const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cf-worker-test-'));
++    const cleanup = async (): Promise<void> => {
++        const processToStop = proc;
++        proc = null;
++        const directoryToRemove = tempDir;
++        tempDir = null;
+ 
+-        // Pack server package
+-        const serverPkgPath = path.resolve(__dirname, '../../../../packages/server');
+-        const packOutput = execSync(`pnpm pack --pack-destination ${tempDir}`, {
+-            cwd: serverPkgPath,
+-            encoding: 'utf8'
+-        });
+-        const tarballName = path.basename(packOutput.trim().split('\n').pop()!);
+-
+-        // Write package.json
+-        const pkgJson = {
+-            name: 'cf-worker-test',
+-            private: true,
+-            type: 'module',
+-            dependencies: {
+-                '@modelcontextprotocol/server': `file:./${tarballName}`
+-            },
+-            devDependencies: {
+-                wrangler: '^4.14.4'
++        try {
++            if (processToStop !== null) {
++                await terminateProcessTree(processToStop);
++            }
++        } finally {
++            if (directoryToRemove !== null) {
++                try {
++                    fs.rmSync(directoryToRemove, { recursive: true, force: true });
++                } catch {
++                    // The process tree is the critical resource; do not mask a test failure if
++                    // the temporary directory cannot be removed.
++                }
+             }
+-        };
+-        fs.writeFileSync(path.join(tempDir, 'package.json'), JSON.stringify(pkgJson, null, 2));
+-
+-        // Write wrangler config
+-        const wranglerConfig = {
+-            $schema: 'node_modules/wrangler/config-schema.json',
+-            name: 'cf-worker-test',
+-            main: 'server.ts',
+-            compatibility_date: '2025-01-01'
+-        };
+-        fs.writeFileSync(path.join(tempDir, 'wrangler.jsonc'), JSON.stringify(wranglerConfig, null, 2));
+-
+-        // Write server source
+-        const serverSource = `
++        }
++    };
++
++    beforeAll(async () => {
++        tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cf-worker-test-'));
++
++        try {
++            // Pack server package
++            const serverPkgPath = path.resolve(__dirname, '../../../../packages/server');
++            const packOutput = execSync(`pnpm pack --pack-destination ${tempDir}`, {
++                cwd: serverPkgPath,
++                encoding: 'utf8'
++            });
++            const tarballName = path.basename(packOutput.trim().split('\n').pop()!);
++
++            // Write package.json
++            const pkgJson = {
++                name: 'cf-worker-test',
++                private: true,
++                type: 'module',
++                dependencies: {
++                    '@modelcontextprotocol/server': `file:./${tarballName}`
++                },
++                devDependencies: {
++                    wrangler: '^4.14.4'
++                }
++            };
++            fs.writeFileSync(path.join(tempDir, 'package.json'), JSON.stringify(pkgJson, null, 2));
++
++            // Write wrangler config
++            const wranglerConfig = {
++                $schema: 'node_modules/wrangler/config-schema.json',
++                name: 'cf-worker-test',
++                main: 'server.ts',
++                compatibility_date: '2025-01-01'
++            };
++            fs.writeFileSync(path.join(tempDir, 'wrangler.jsonc'), JSON.stringify(wranglerConfig, null, 2));
++
++            // Write server source
++            const serverSource = `
+ import { McpServer, WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/server';
+ 
+ const server = new McpServer({ name: "test-server", version: "1.0.0" });
+@@ -140,42 +236,30 @@ export default {
+     fetch: (request) => transport.handleRequest(request)
+ };
+ `;
+-        fs.writeFileSync(path.join(tempDir, 'server.ts'), serverSource);
++            fs.writeFileSync(path.join(tempDir, 'server.ts'), serverSource);
+ 
+-        // Install dependencies
+-        execSync('npm install', { cwd: tempDir, stdio: 'pipe', timeout: 60_000 });
++            // Install dependencies
++            execSync('npm install', { cwd: tempDir, stdio: 'pipe', timeout: 60_000 });
+ 
+-        // Start wrangler dev server. Readiness is determined by probing the MCP endpoint, not by
+-        // parsing wrangler's stdout — see waitForMcpReady for the reasoning.
+-        const proc = spawn('npx', ['wrangler', 'dev', '--local', '--port', String(PORT)], {
+-            cwd: tempDir,
+-            shell: true,
+-            stdio: 'pipe'
+-        });
++            // Invoke Wrangler's JS entry point directly instead of spawning it through a shell.
++            // On POSIX, detached makes it the leader of a process group that cleanup can terminate
++            // as a unit, including Miniflare and workerd.
++            const wranglerEntryPoint = path.join(tempDir, 'node_modules', 'wrangler', 'bin', 'wrangler.js');
++            proc = spawn(process.execPath, [wranglerEntryPoint, 'dev', '--local', '--port', String(PORT)], {
++                cwd: tempDir,
++                detached: process.platform !== 'win32',
++                stdio: 'pipe'
++            });
+ 
+-        try {
+             await waitForMcpReady(proc);
+         } catch (error) {
+-            proc.kill('SIGTERM');
++            await cleanup();
+             throw error;
+         }
+-
+-        cleanup = async () => {
+-            proc.kill('SIGTERM');
+-            await new Promise<void>(resolve => {
+-                proc.on('close', () => resolve());
+-                setTimeout(resolve, 5000);
+-            });
+-            try {
+-                fs.rmSync(tempDir, { recursive: true, force: true });
+-            } catch {
+-                // Ignore cleanup errors
+-            }
+-        };
+     }, 120_000);
+ 
+     afterAll(async () => {
+-        await cleanup?.();
++        await cleanup();
+     });
+ 
+     it('should handle MCP requests', async () => {
+

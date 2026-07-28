@@ -1,0 +1,128 @@
+{
+  "schemaVersion": 1,
+  "taskId": "T03",
+  "reviewer": "gemini-cli",
+  "assignment": {
+    "X": "codex-capsule",
+    "Y": "codex"
+  },
+  "preference": "X",
+  "preferredVariant": "codex-capsule",
+  "scores": {
+    "X": 24,
+    "Y": 21,
+    "codex": 21,
+    "codexCapsule": 24
+  },
+  "review": {
+    "schemaVersion": 1,
+    "taskId": "T03",
+    "preference": "X",
+    "confidence": 0.95,
+    "solutions": {
+      "X": {
+        "correctness": 5,
+        "coverage": 5,
+        "simplicity": 4,
+        "maintainability": 5,
+        "regressionSafety": 5,
+        "strengths": [
+          "Dynamic port allocation via getAvailablePort() eliminates the possibility of port collisions and 'stale port' hangs even if OS-level socket cleanup is delayed (TIME_WAIT).",
+          "Robust process tree termination using platform-specific methods: negative PID for POSIX process groups and 'taskkill /t' for Windows.",
+          "Comprehensive error handling in the readiness loop, including catching spawn errors and providing helpful error messages with stderr context.",
+          "Proper use of 'detached' flag and platform-specific 'npx' command names."
+        ],
+        "fatalFlaws": []
+      },
+      "Y": {
+        "correctness": 4,
+        "coverage": 4,
+        "simplicity": 5,
+        "maintainability": 4,
+        "regressionSafety": 4,
+        "strengths": [
+          "Directly invokes the wrangler JS entry point, bypassing shell/npx overhead.",
+          "Implements process group termination for POSIX and Windows.",
+          "Adds AbortSignal.timeout to readiness fetch requests."
+        ],
+        "fatalFlaws": [
+          "Uses a hardcoded port (8787), which fails to fully address the 'stale port' requirement in cases of intermittent termination failures or OS socket lingering."
+        ]
+      }
+    },
+    "rationale": "Solution X is superior because it addresses both parts of the task: process leaks and stale ports. While both solutions implement effective process tree termination (using process groups on POSIX and taskkill on Windows), only Solution X implements dynamic port allocation. This is the most reliable way to prevent tests from hanging or failing due to port conflicts, especially in environments where previous processes might not have cleaned up or where the OS holds the port in a wait state. Solution X also provides better error reporting during the startup phase by monitoring the 'error' and 'exit' events of the child process during the readiness poll. Solution Y's direct execution of the wrangler script is efficient but more fragile regarding package structure, and its reliance on a fixed port is a significant weakness for integration testing robustness.",
+    "requiredFollowups": []
+  },
+  "usage": {
+    "gemini-3.1-pro-preview-customtools": {
+      "api": {
+        "totalRequests": 1,
+        "totalErrors": 1,
+        "totalLatencyMs": 295
+      },
+      "tokens": {
+        "input": 0,
+        "prompt": 0,
+        "candidates": 0,
+        "total": 0,
+        "cached": 0,
+        "thoughts": 0,
+        "tool": 0
+      },
+      "roles": {
+        "main": {
+          "totalRequests": 1,
+          "totalErrors": 1,
+          "totalLatencyMs": 295,
+          "tokens": {
+            "input": 0,
+            "prompt": 0,
+            "candidates": 0,
+            "total": 0,
+            "cached": 0,
+            "thoughts": 0,
+            "tool": 0
+          }
+        }
+      }
+    },
+    "gemini-3-flash-preview": {
+      "api": {
+        "totalRequests": 1,
+        "totalErrors": 0,
+        "totalLatencyMs": 23351
+      },
+      "tokens": {
+        "input": 18468,
+        "prompt": 18468,
+        "candidates": 563,
+        "total": 22344,
+        "cached": 0,
+        "thoughts": 3313,
+        "tool": 0
+      },
+      "roles": {
+        "main": {
+          "totalRequests": 1,
+          "totalErrors": 0,
+          "totalLatencyMs": 23351,
+          "tokens": {
+            "input": 18468,
+            "prompt": 18468,
+            "candidates": 563,
+            "total": 22344,
+            "cached": 0,
+            "thoughts": 3313,
+            "tool": 0
+          }
+        }
+      }
+    }
+  },
+  "warnings": [
+    "Warning: Basic terminal detected (TERM=dumb). Visual rendering will be limited. For the best experience, use a terminal emulator with truecolor support.",
+    "Warning: 256-color support not detected. Using a terminal with at least 256-color support is recommended for a better visual experience.",
+    "[STARTUP] Phase 'cleanup_ops' was started but never ended. Skipping metrics.",
+    "[STARTUP] Cannot measure phase 'cleanup_ops': start mark 'startup:cleanup_ops:start' not found (likely cleared by reset)."
+  ]
+}

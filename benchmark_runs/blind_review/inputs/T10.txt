@@ -1,0 +1,1205 @@
+You are an independent senior TypeScript code reviewer. Compare two anonymized solutions to the same task.
+
+Rules:
+- Use only the task, patches, and validation summaries below. Do not use tools or infer author/model identity.
+- Passing tests are evidence, not proof. Inspect edge cases, scope, cleanup, concurrency, public API, and regression risk.
+- Penalize unnecessary edits and tests that do not actually prove the requested behavior.
+- Score each dimension from 1 (poor) to 5 (excellent).
+- Prefer X, Y, or tie. A tie is valid when patches are materially equivalent.
+- confidence MUST be a decimal number from 0 through 1 (for example 0.85), never a percentage.
+- Return only one JSON object. Do not use Markdown fences.
+
+Required JSON shape:
+{"schemaVersion":1,"taskId":"T10","preference":"X|Y|tie","confidence":0.0,"solutions":{"X":{"correctness":1,"coverage":1,"simplicity":1,"maintainability":1,"regressionSafety":1,"strengths":[],"fatalFlaws":[]},"Y":{"correctness":1,"coverage":1,"simplicity":1,"maintainability":1,"regressionSafety":1,"strengths":[],"fatalFlaws":[]}},"rationale":"max 2000 chars","requiredFollowups":[]}
+
+TASK
+Görev: Web-standard Streamable HTTP transport'ta uzun SSE bağlantılarının boşta kalıp ara katmanlarca kapatılmasını önlemek için comment-frame keep-alive desteği ekle.
+Başarı kriteri: Per-request ve shared transport yolları periyodik SSE comment frame yollar; timer kapanış/abort sonrası temizlenir; ilgili server testleri geçer.
+
+SOLUTION X VALIDATION
+[{"kind":"test","status":"PASS","timedOut":false},{"kind":"lint","status":"PASS","timedOut":false},{"kind":"typecheck","status":"PASS","timedOut":false}]
+
+SOLUTION X PATCH
+diff --git a/packages/server/src/server/streamableHttp.ts b/packages/server/src/server/streamableHttp.ts
+index 7da5fb8..ba01c50 100644
+--- a/packages/server/src/server/streamableHttp.ts
++++ b/packages/server/src/server/streamableHttp.ts
+@@ -70,6 +70,8 @@ interface StreamMapping {
+      * during the `storeEvent()` await and replay already delivered the event.
+      */
+     replayedEventIds?: Set<string>;
++    /** Keep-alive timer for an SSE response. */
++    keepAliveTimer?: ReturnType<typeof setInterval>;
+     /** Cleanup function to close stream and remove mapping */
+     cleanup: () => void;
+ }
+@@ -148,6 +150,13 @@ export interface WebStandardStreamableHTTPServerTransportOptions {
+      */
+     retryInterval?: number;
+ 
++    /**
++     * SSE comment-frame keepalive interval in milliseconds.
++     * Set to `0` to disable.
++     * @default 15000
++     */
++    keepAliveMs?: number;
++
+     /**
+      * List of protocol versions that this transport will accept.
+      * Used to validate the `mcp-protocol-version` header in incoming requests.
+@@ -246,6 +255,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
+     private _allowedOrigins?: string[];
+     private _enableDnsRebindingProtection: boolean;
+     private _retryInterval?: number;
++    private _keepAliveMs: number;
+     private _supportedProtocolVersions: string[];
+ 
+     sessionId?: string;
+@@ -263,6 +273,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
+         this._allowedOrigins = options.allowedOrigins;
+         this._enableDnsRebindingProtection = options.enableDnsRebindingProtection ?? false;
+         this._retryInterval = options.retryInterval;
++        this._keepAliveMs = options.keepAliveMs ?? 15_000;
+         this._supportedProtocolVersions = options.supportedProtocolVersions ?? SUPPORTED_PROTOCOL_VERSIONS;
+     }
+ 
+@@ -472,8 +483,9 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
+                 // Stream was cancelled by client. Only drop the mapping when
+                 // it still points at THIS controller — a stale cancel must not
+                 // delete a successor stream registered by a later GET/resume.
+-                if (this._streamMapping.get(this._standaloneSseStreamId)?.controller === streamController) {
+-                    this._streamMapping.delete(this._standaloneSseStreamId);
++                const mapping = this._streamMapping.get(this._standaloneSseStreamId);
++                if (mapping?.controller === streamController) {
++                    mapping.cleanup();
+                 }
+             }
+         });
+@@ -490,18 +502,10 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
+         }
+ 
+         // Store the stream mapping with the controller for pushing data
+-        this._streamMapping.set(this._standaloneSseStreamId, {
+-            controller: streamController!,
+-            encoder,
+-            cleanup: () => {
+-                this._streamMapping.delete(this._standaloneSseStreamId);
+-                try {
+-                    streamController!.close();
+-                } catch {
+-                    // Controller might already be closed
+-                }
+-            }
+-        });
++        this._streamMapping.set(
++            this._standaloneSseStreamId,
++            this.createSseStreamMapping(this._standaloneSseStreamId, streamController!, encoder)
++        );
+ 
+         return new Response(readable, { headers });
+     }
+@@ -563,8 +567,9 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
+                     // when the mapped entry is still THIS closure's controller:
+                     // a stale cancel from an earlier resume must not delete a
+                     // successor resumed stream a re-poll has since registered.
+-                    if (replayedStreamId !== undefined && this._streamMapping.get(replayedStreamId)?.controller === streamController) {
+-                        this._streamMapping.delete(replayedStreamId);
++                    const mapping = replayedStreamId === undefined ? undefined : this._streamMapping.get(replayedStreamId);
++                    if (mapping?.controller === streamController) {
++                        mapping.cleanup();
+                     }
+                 }
+             });
+@@ -585,19 +590,8 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
+                 }
+             });
+ 
+-            this._streamMapping.set(replayedStreamId, {
+-                controller: streamController!,
+-                encoder,
+-                replayedEventIds,
+-                cleanup: () => {
+-                    this._streamMapping.delete(replayedStreamId!);
+-                    try {
+-                        streamController!.close();
+-                    } catch {
+-                        // Controller might already be closed
+-                    }
+-                }
+-            });
++            const mapping = this.createSseStreamMapping(replayedStreamId, streamController!, encoder, replayedEventIds);
++            this._streamMapping.set(replayedStreamId, mapping);
+ 
+             // If this is a per-request stream and no in-flight request still
+             // targets this streamId, the request was already retired by the
+@@ -609,12 +603,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
+             if (replayedStreamId !== this._standaloneSseStreamId) {
+                 const hasInFlightRequest = [...this._requestToStreamMapping.values()].includes(replayedStreamId);
+                 if (!hasInFlightRequest) {
+-                    this._streamMapping.delete(replayedStreamId);
+-                    try {
+-                        streamController!.close();
+-                    } catch {
+-                        // Controller might already be closed
+-                    }
++                    mapping.cleanup();
+                 }
+             }
+ 
+@@ -649,6 +638,60 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
+         }
+     }
+ 
++    /**
++     * Creates a live SSE mapping and owns its keep-alive timer. Every exit
++     * path funnels through `cleanup`, so cancellation, normal completion, and
++     * transport close all stop the timer before closing the controller.
++     */
++    private createSseStreamMapping(
++        streamId: string,
++        controller: ReadableStreamDefaultController<Uint8Array>,
++        encoder: InstanceType<typeof TextEncoder>,
++        replayedEventIds?: Set<string>
++    ): StreamMapping {
++        const mapping: StreamMapping = {
++            controller,
++            encoder,
++            ...(replayedEventIds !== undefined && { replayedEventIds }),
++            cleanup: () => {
++                if (mapping.keepAliveTimer !== undefined) {
++                    clearInterval(mapping.keepAliveTimer);
++                    mapping.keepAliveTimer = undefined;
++                }
++                if (this._streamMapping.get(streamId)?.controller === controller) {
++                    this._streamMapping.delete(streamId);
++                }
++                try {
++                    controller.close();
++                } catch {
++                    // Controller might already be closed or cancelled.
++                }
++            }
++        };
++        if (this._keepAliveMs > 0) {
++            mapping.keepAliveTimer = setInterval(() => {
++                this.writeSSEComment(controller, encoder, 'keep-alive');
++            }, this._keepAliveMs);
++        }
++        return mapping;
++    }
++
++    private writeSSEComment(
++        controller: ReadableStreamDefaultController<Uint8Array>,
++        encoder: InstanceType<typeof TextEncoder>,
++        comment: string
++    ): void {
++        try {
++            const frame = comment
++                .split('\n')
++                .map(line => `: ${line}`)
++                .join('\n');
++            controller.enqueue(encoder.encode(`${frame}\n\n`));
++        } catch (error) {
++            this.onerror?.(error as Error);
++        }
++    }
++
+     /**
+      * Handles unsupported requests (`PUT`, `PATCH`, etc.)
+      */
+@@ -829,8 +872,9 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
+                     // (firing after a Last-Event-ID reconnect registered a
+                     // resumed stream under the same streamId) must not delete
+                     // the successor.
+-                    if (this._streamMapping.get(streamId)?.controller === streamController) {
+-                        this._streamMapping.delete(streamId);
++                    const mapping = this._streamMapping.get(streamId);
++                    if (mapping?.controller === streamController) {
++                        mapping.cleanup();
+                     }
+                 }
+             });
+@@ -848,20 +892,9 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
+ 
+             // Store the response for this request to send messages back through this connection
+             // We need to track by request ID to maintain the connection
++            this._streamMapping.set(streamId, this.createSseStreamMapping(streamId, streamController!, encoder));
+             for (const message of messages) {
+                 if (isJSONRPCRequest(message)) {
+-                    this._streamMapping.set(streamId, {
+-                        controller: streamController!,
+-                        encoder,
+-                        cleanup: () => {
+-                            this._streamMapping.delete(streamId);
+-                            try {
+-                                streamController!.close();
+-                            } catch {
+-                                // Controller might already be closed
+-                            }
+-                        }
+-                    });
+                     this._requestToStreamMapping.set(message.id, streamId);
+                 }
+             }
+diff --git a/packages/server/src/server/invoke.ts b/packages/server/src/server/invoke.ts
+index 6966968..292d590 100644
+--- a/packages/server/src/server/invoke.ts
++++ b/packages/server/src/server/invoke.ts
+@@ -35,6 +35,8 @@ export interface InvokeContext {
+     authInfo?: AuthInfo;
+     /** Response shaping for the exchange; defaults to `auto` (lazy SSE upgrade). */
+     responseMode?: PerRequestResponseMode;
++    /** SSE comment-frame keepalive interval in milliseconds. Set to `0` to disable. */
++    keepAliveMs?: number;
+ }
+ 
+ /**
+@@ -58,7 +60,8 @@ export async function invoke(
+ ): Promise<Response> {
+     const transport = new PerRequestHTTPServerTransport({
+         classification: ctx.classification,
+-        ...(ctx.responseMode !== undefined && { responseMode: ctx.responseMode })
++        ...(ctx.responseMode !== undefined && { responseMode: ctx.responseMode }),
++        ...(ctx.keepAliveMs !== undefined && { keepAliveMs: ctx.keepAliveMs })
+     });
+     await server.connect(transport);
+     return transport.handleMessage(message, {
+diff --git a/packages/server/src/server/createMcpHandler.ts b/packages/server/src/server/createMcpHandler.ts
+index f17deaa..1d044c7 100644
+--- a/packages/server/src/server/createMcpHandler.ts
++++ b/packages/server/src/server/createMcpHandler.ts
+@@ -194,8 +194,8 @@ export interface CreateMcpHandlerOptions {
+      */
+     maxSubscriptions?: number;
+     /**
+-     * SSE comment-frame keepalive interval for `subscriptions/listen` streams,
+-     * in milliseconds. Set to `0` to disable.
++     * SSE comment-frame keepalive interval for per-request and
++     * `subscriptions/listen` streams, in milliseconds. Set to `0` to disable.
+      * @default 15000
+      */
+     keepAliveMs?: number;
+@@ -778,7 +778,8 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
+                 classification: route.classification,
+                 request,
+                 ...(authInfo !== undefined && { authInfo }),
+-                ...(responseMode !== undefined && { responseMode })
++                ...(responseMode !== undefined && { responseMode }),
++                keepAliveMs: options.keepAliveMs ?? DEFAULT_LISTEN_KEEPALIVE_MS
+             });
+             if (route.messageKind === 'notification') {
+                 // Notification exchanges have no terminal response to ride the
+diff --git a/packages/server/test/server/perRequestStreaming.test.ts b/packages/server/test/server/perRequestStreaming.test.ts
+index 6d350ed..e0fa35e 100644
+--- a/packages/server/test/server/perRequestStreaming.test.ts
++++ b/packages/server/test/server/perRequestStreaming.test.ts
+@@ -11,7 +11,7 @@ import {
+     PROTOCOL_VERSION_META_KEY,
+     setNegotiatedProtocolVersion
+ } from '@modelcontextprotocol/core-internal';
+-import { describe, expect, it } from 'vitest';
++import { describe, expect, it, vi } from 'vitest';
+ 
+ import type { PerRequestResponseMode } from '../../src/server/perRequestTransport';
+ import { PerRequestHTTPServerTransport } from '../../src/server/perRequestTransport';
+@@ -46,14 +46,16 @@ interface StreamingSetup {
+ 
+ async function setup(
+     handler: (ctx: ServerContext) => Promise<CallToolResult>,
+-    responseMode?: PerRequestResponseMode
++    responseMode?: PerRequestResponseMode,
++    keepAliveMs?: number
+ ): Promise<StreamingSetup> {
+     const server = new Server({ name: 'streaming-test', version: '1.0.0' }, { capabilities: { tools: {} } });
+     server.setRequestHandler('tools/call', async (_request, ctx) => handler(ctx));
+     setNegotiatedProtocolVersion(server, MODERN_REVISION);
+     const transport = new PerRequestHTTPServerTransport({
+         classification: MODERN,
+-        ...(responseMode !== undefined && { responseMode })
++        ...(responseMode !== undefined && { responseMode }),
++        ...(keepAliveMs !== undefined && { keepAliveMs })
+     });
+     await server.connect(transport);
+     return { server, transport };
+@@ -221,6 +223,42 @@ describe('comment frames', () => {
+         transport.writeCommentFrame('late');
+         expect(errors).toHaveLength(0);
+     });
++
++    it('periodically writes keep-alive comments and clears the timer on request abort', async () => {
++        vi.useFakeTimers();
++        let release!: () => void;
++        const gate = new Promise<void>(resolve => {
++            release = resolve;
++        });
++
++        try {
++            const { transport } = await setup(
++                async () => {
++                    await gate;
++                    return { content: [] };
++                },
++                'sse',
++                10
++            );
++            const abortController = new AbortController();
++            const request = new Request('http://localhost/mcp', { signal: abortController.signal });
++            const response = await transport.handleMessage(toolsCall(), { request });
++            const reader = response.body!.getReader();
++            const framePromise = reader.read();
++
++            await vi.advanceTimersByTimeAsync(10);
++            const { value } = await framePromise;
++            expect(new TextDecoder().decode(value)).toBe(': keep-alive\n\n');
++            expect(vi.getTimerCount()).toBe(1);
++
++            abortController.abort();
++            await vi.runAllTicks();
++            expect(vi.getTimerCount()).toBe(0);
++        } finally {
++            release();
++            vi.useRealTimers();
++        }
++    });
+ });
+ 
+ describe('disconnect is cancellation', () => {
+diff --git a/packages/server/test/server/streamableHttp.test.ts b/packages/server/test/server/streamableHttp.test.ts
+index beca451..6adcef6 100644
+--- a/packages/server/test/server/streamableHttp.test.ts
++++ b/packages/server/test/server/streamableHttp.test.ts
+@@ -1,6 +1,7 @@
+ import { randomUUID } from 'node:crypto';
+ 
+ import type { CallToolResult, JSONRPCErrorResponse, JSONRPCMessage } from '@modelcontextprotocol/core-internal';
++import { vi } from 'vitest';
+ import * as z from 'zod/v4';
+ 
+ import { McpServer } from '../../src/server/mcp';
+@@ -117,6 +118,33 @@ function expectErrorResponse(data: unknown, expectedCode: number, expectedMessag
+     });
+ }
+ 
++describe('SSE keep-alive', () => {
++    it('writes comment frames on shared streams and clears the timer when cancelled', async () => {
++        vi.useFakeTimers();
++        const transport = new WebStandardStreamableHTTPServerTransport({
++            sessionIdGenerator: undefined,
++            keepAliveMs: 10
++        });
++
++        try {
++            const response = await transport.handleRequest(createRequest('GET'));
++            const reader = response.body!.getReader();
++            const framePromise = reader.read();
++
++            await vi.advanceTimersByTimeAsync(10);
++            const { value } = await framePromise;
++            expect(new TextDecoder().decode(value)).toBe(': keep-alive\n\n');
++            expect(vi.getTimerCount()).toBe(1);
++
++            await reader.cancel();
++            expect(vi.getTimerCount()).toBe(0);
++        } finally {
++            await transport.close();
++            vi.useRealTimers();
++        }
++    });
++});
++
+ describe('Zod v4', () => {
+     describe('HTTPServerTransport', () => {
+         let transport: WebStandardStreamableHTTPServerTransport;
+diff --git a/packages/server/src/server/perRequestTransport.ts b/packages/server/src/server/perRequestTransport.ts
+index 5003946..da8db56 100644
+--- a/packages/server/src/server/perRequestTransport.ts
++++ b/packages/server/src/server/perRequestTransport.ts
+@@ -79,6 +79,8 @@ export interface PerRequestHTTPServerTransportOptions {
+     classification: MessageClassification;
+     /** Response shaping for the exchange; defaults to `auto`. */
+     responseMode?: PerRequestResponseMode;
++    /** SSE comment-frame keepalive interval in milliseconds. Set to `0` to disable. Defaults to `15000`. */
++    keepAliveMs?: number;
+ }
+ 
+ /** Per-exchange context handed to {@linkcode PerRequestHTTPServerTransport.handleMessage}. */
+@@ -121,6 +123,7 @@ export class PerRequestHTTPServerTransport implements Transport {
+ 
+     private readonly _classification: MessageClassification;
+     private readonly _responseMode: PerRequestResponseMode;
++    private readonly _keepAliveMs: number;
+ 
+     private _started = false;
+     private _used = false;
+@@ -140,10 +143,12 @@ export class PerRequestHTTPServerTransport implements Transport {
+     private _deferredResponse?: DeferredResponse;
+     private _sse?: SseSink;
+     private _abortCleanup?: () => void;
++    private _keepAliveTimer?: ReturnType<typeof setInterval>;
+ 
+     constructor(options: PerRequestHTTPServerTransportOptions) {
+         this._classification = options.classification;
+         this._responseMode = options.responseMode ?? 'auto';
++        this._keepAliveMs = options.keepAliveMs ?? 15_000;
+     }
+ 
+     async start(): Promise<void> {
+@@ -342,6 +347,7 @@ export class PerRequestHTTPServerTransport implements Transport {
+ 
+         this._abortCleanup?.();
+         this._abortCleanup = undefined;
++        this.stopKeepAlive();
+ 
+         if (this._sse !== undefined && !this._sse.closed) {
+             this._sse.closed = true;
+@@ -382,6 +388,9 @@ export class PerRequestHTTPServerTransport implements Transport {
+             }
+         });
+         this._sse = { controller, encoder: new TextEncoder(), closed: false };
++        if (this._keepAliveMs > 0) {
++            this._keepAliveTimer = setInterval(() => this.writeCommentFrame('keep-alive'), this._keepAliveMs);
++        }
+ 
+         this.settleResponse(
+             new Response(readable, {
+@@ -399,6 +408,7 @@ export class PerRequestHTTPServerTransport implements Transport {
+     }
+ 
+     private finalizeStream(): void {
++        this.stopKeepAlive();
+         if (this._sse !== undefined && !this._sse.closed) {
+             this._sse.closed = true;
+             try {
+@@ -424,4 +434,11 @@ export class PerRequestHTTPServerTransport implements Transport {
+             this.onerror?.(new Error(`Failed to write to the response stream: ${error}`));
+         }
+     }
++
++    private stopKeepAlive(): void {
++        if (this._keepAliveTimer !== undefined) {
++            clearInterval(this._keepAliveTimer);
++            this._keepAliveTimer = undefined;
++        }
++    }
+ }
+
+
+SOLUTION Y VALIDATION
+[{"kind":"test","status":"PASS","timedOut":false},{"kind":"lint","status":"PASS","timedOut":false},{"kind":"typecheck","status":"PASS","timedOut":false}]
+
+SOLUTION Y PATCH
+diff --git a/packages/server/src/server/streamableHttp.ts b/packages/server/src/server/streamableHttp.ts
+index 7da5fb8..c0f4856 100644
+--- a/packages/server/src/server/streamableHttp.ts
++++ b/packages/server/src/server/streamableHttp.ts
+@@ -19,6 +19,8 @@ import {
+     SUPPORTED_PROTOCOL_VERSIONS
+ } from '@modelcontextprotocol/core-internal';
+ 
++import { armSseKeepAlive, DEFAULT_SSE_KEEP_ALIVE_MS } from './sseKeepAlive';
++
+ export type StreamId = string;
+ export type EventId = string;
+ 
+@@ -148,6 +150,12 @@ export interface WebStandardStreamableHTTPServerTransportOptions {
+      */
+     retryInterval?: number;
+ 
++    /**
++     * Interval in milliseconds between SSE keep-alive comment frames.
++     * Defaults to `15000`; set to `0` to disable.
++     */
++    keepAliveMs?: number;
++
+     /**
+      * List of protocol versions that this transport will accept.
+      * Used to validate the `mcp-protocol-version` header in incoming requests.
+@@ -247,6 +255,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
+     private _enableDnsRebindingProtection: boolean;
+     private _retryInterval?: number;
+     private _supportedProtocolVersions: string[];
++    private _keepAliveMs: number;
+ 
+     sessionId?: string;
+     onclose?: () => void;
+@@ -264,6 +273,23 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
+         this._enableDnsRebindingProtection = options.enableDnsRebindingProtection ?? false;
+         this._retryInterval = options.retryInterval;
+         this._supportedProtocolVersions = options.supportedProtocolVersions ?? SUPPORTED_PROTOCOL_VERSIONS;
++        this._keepAliveMs = options.keepAliveMs ?? DEFAULT_SSE_KEEP_ALIVE_MS;
++    }
++
++    private startKeepAlive(
++        controller: ReadableStreamDefaultController<Uint8Array>,
++        encoder: InstanceType<typeof TextEncoder>
++    ): ReturnType<typeof setInterval> | undefined {
++        if (this._closed) return undefined;
++
++        const timer = armSseKeepAlive(this._keepAliveMs, () => {
++            try {
++                controller.enqueue(encoder.encode(': keepalive\n\n'));
++            } catch {
++                if (timer !== undefined) clearInterval(timer);
++            }
++        });
++        return timer;
+     }
+ 
+     /**
+@@ -352,6 +378,10 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
+      * Returns a `Response` object (Web Standard)
+      */
+     async handleRequest(req: Request, options?: HandleRequestOptions): Promise<Response> {
++        if (this._closed) {
++            return this.createJsonErrorResponse(404, -32_001, 'Session not found');
++        }
++
+         // Validate request headers for DNS rebinding protection
+         const validationError = this.validateRequestHeaders(req);
+         if (validationError) {
+@@ -462,6 +492,9 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
+ 
+         const encoder = new TextEncoder();
+         let streamController: ReadableStreamDefaultController<Uint8Array>;
++        // Captured by cancel/cleanup before it is assigned after stream setup.
++        // eslint-disable-next-line prefer-const
++        let keepAliveTimer: ReturnType<typeof setInterval> | undefined;
+ 
+         // Create a ReadableStream with a controller we can use to push SSE events
+         const readable = new ReadableStream<Uint8Array>({
+@@ -469,6 +502,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
+                 streamController = controller;
+             },
+             cancel: () => {
++                if (keepAliveTimer !== undefined) clearInterval(keepAliveTimer);
+                 // Stream was cancelled by client. Only drop the mapping when
+                 // it still points at THIS controller — a stale cancel must not
+                 // delete a successor stream registered by a later GET/resume.
+@@ -481,7 +515,8 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
+         const headers: Record<string, string> = {
+             'Content-Type': 'text/event-stream',
+             'Cache-Control': 'no-cache, no-transform',
+-            Connection: 'keep-alive'
++            Connection: 'keep-alive',
++            'X-Accel-Buffering': 'no'
+         };
+ 
+         // After initialization, always include the session ID if we have one
+@@ -494,6 +529,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
+             controller: streamController!,
+             encoder,
+             cleanup: () => {
++                if (keepAliveTimer !== undefined) clearInterval(keepAliveTimer);
+                 this._streamMapping.delete(this._standaloneSseStreamId);
+                 try {
+                     streamController!.close();
+@@ -503,6 +539,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
+             }
+         });
+ 
++        keepAliveTimer = this.startKeepAlive(streamController!, encoder);
+         return new Response(readable, { headers });
+     }
+ 
+@@ -537,7 +574,8 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
+             const headers: Record<string, string> = {
+                 'Content-Type': 'text/event-stream',
+                 'Cache-Control': 'no-cache, no-transform',
+-                Connection: 'keep-alive'
++                Connection: 'keep-alive',
++                'X-Accel-Buffering': 'no'
+             };
+ 
+             if (this.sessionId !== undefined) {
+@@ -547,6 +585,8 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
+             // Create a ReadableStream with controller for SSE
+             const encoder = new TextEncoder();
+             let streamController: ReadableStreamDefaultController<Uint8Array>;
++            let keepAliveTimer: ReturnType<typeof setInterval> | undefined;
++            let cancelled = false;
+             // Captured by the cancel closure below before it's assigned (after
+             // replayEventsAfter resolves) — must be `let`.
+             // eslint-disable-next-line prefer-const
+@@ -557,6 +597,8 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
+                     streamController = controller;
+                 },
+                 cancel: () => {
++                    cancelled = true;
++                    if (keepAliveTimer !== undefined) clearInterval(keepAliveTimer);
+                     // Stream was cancelled by client — drop the mapping so a
+                     // subsequent reconnect with the same Last-Event-ID is not
+                     // refused with 409 by the conflict check above. Only delete
+@@ -585,11 +627,22 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
+                 }
+             });
+ 
++            if (this._closed || cancelled) {
++                try {
++                    streamController!.close();
++                } catch {
++                    // Controller already closed/cancelled.
++                }
++                return this.createJsonErrorResponse(404, -32_001, 'Session not found');
++            }
++
++            this._streamMapping.get(replayedStreamId)?.cleanup();
+             this._streamMapping.set(replayedStreamId, {
+                 controller: streamController!,
+                 encoder,
+                 replayedEventIds,
+                 cleanup: () => {
++                    if (keepAliveTimer !== undefined) clearInterval(keepAliveTimer);
+                     this._streamMapping.delete(replayedStreamId!);
+                     try {
+                         streamController!.close();
+@@ -618,6 +671,9 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
+                 }
+             }
+ 
++            if (this._streamMapping.get(replayedStreamId)?.controller === streamController!) {
++                keepAliveTimer = this.startKeepAlive(streamController!, encoder);
++            }
+             return new Response(readable, { headers });
+         } catch (error) {
+             this.onerror?.(error as Error);
+@@ -728,6 +784,10 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
+                 return this.createJsonErrorResponse(400, -32_700, 'Parse error: Invalid JSON-RPC message');
+             }
+ 
++            if (this._closed) {
++                return this.createJsonErrorResponse(404, -32_001, 'Session not found');
++            }
++
+             // Check if this is an initialization request
+             // https://spec.modelcontextprotocol.io/specification/2025-03-26/basic/lifecycle/
+             // The schema-validated guard (types/guards.ts → types/schemas.ts —
+@@ -770,6 +830,10 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
+                 }
+             }
+ 
++            if (this._closed) {
++                return this.createJsonErrorResponse(404, -32_001, 'Session not found');
++            }
++
+             // check if it contains requests
+             const hasRequests = messages.some(element => isJSONRPCRequest(element));
+ 
+@@ -818,12 +882,14 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
+             // SSE streaming mode - use ReadableStream with controller for more reliable data pushing
+             const encoder = new TextEncoder();
+             let streamController: ReadableStreamDefaultController<Uint8Array>;
++            let keepAliveTimer: ReturnType<typeof setInterval> | undefined;
+ 
+             const readable = new ReadableStream<Uint8Array>({
+                 start: controller => {
+                     streamController = controller;
+                 },
+                 cancel: () => {
++                    if (keepAliveTimer !== undefined) clearInterval(keepAliveTimer);
+                     // Stream was cancelled by client. Only drop the mapping
+                     // when it still points at THIS controller — a stale cancel
+                     // (firing after a Last-Event-ID reconnect registered a
+@@ -837,8 +903,9 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
+ 
+             const headers: Record<string, string> = {
+                 'Content-Type': 'text/event-stream',
+-                'Cache-Control': 'no-cache',
+-                Connection: 'keep-alive'
++                'Cache-Control': 'no-cache, no-transform',
++                Connection: 'keep-alive',
++                'X-Accel-Buffering': 'no'
+             };
+ 
+             // After initialization, always include the session ID if we have one
+@@ -854,6 +921,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
+                         controller: streamController!,
+                         encoder,
+                         cleanup: () => {
++                            if (keepAliveTimer !== undefined) clearInterval(keepAliveTimer);
+                             this._streamMapping.delete(streamId);
+                             try {
+                                 streamController!.close();
+@@ -891,6 +959,9 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
+             // The server SHOULD NOT close the SSE stream before sending all JSON-RPC responses
+             // This will be handled by the send() method when responses are ready
+ 
++            if (this._streamMapping.get(streamId)?.controller === streamController!) {
++                keepAliveTimer = this.startKeepAlive(streamController!, encoder);
++            }
+             return new Response(readable, { status: 200, headers });
+         } catch (error) {
+             // return JSON-RPC formatted error
+@@ -912,9 +983,12 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
+             return protocolError;
+         }
+ 
+-        await Promise.resolve(this._onsessionclosed?.(this.sessionId!));
+-        await this.close();
+-        return new Response(null, { status: 200 });
++        try {
++            await Promise.resolve(this._onsessionclosed?.(this.sessionId!));
++            return new Response(null, { status: 200 });
++        } finally {
++            await this.close();
++        }
+     }
+ 
+     /**
+diff --git a/docs/troubleshooting.md b/docs/troubleshooting.md
+index 1fc325b..bf96270 100644
+--- a/docs/troubleshooting.md
++++ b/docs/troubleshooting.md
+@@ -154,6 +154,10 @@ Rewrite the imports:
+ 
+ The Resource Server helpers did not move there: `requireBearerAuth`, `mcpAuthMetadataRouter` and `OAuthTokenVerifier` are first-class in `@modelcontextprotocol/express` — see [Authorization](./serving/authorization.md). `@modelcontextprotocol/server-legacy` is frozen and receives no new features; serve new code over [Streamable HTTP](./serving/http.md), which still reaches 2025-era clients through [legacy client support](./serving/legacy-clients.md). A client limited to the HTTP+SSE transport is the one case that still needs the frozen `@modelcontextprotocol/server-legacy/sse` import above.
+ 
++## `SSE stream disconnected: TypeError: terminated`
++
++HTTP SSE streams emit a `: keepalive` comment every 15 seconds by default so client body-idle timeouts and intermediaries do not terminate an otherwise idle connection. Configure the interval with `keepAliveMs` on the transport or `createMcpHandler`; set it to `0` to disable heartbeats.
++
+ ## Recap
+ 
+ - Every heading on this page is the exact message you searched for.
+diff --git a/packages/server/test/server/perRequestStreaming.test.ts b/packages/server/test/server/perRequestStreaming.test.ts
+index 6d350ed..f6ea6fe 100644
+--- a/packages/server/test/server/perRequestStreaming.test.ts
++++ b/packages/server/test/server/perRequestStreaming.test.ts
+@@ -11,7 +11,7 @@ import {
+     PROTOCOL_VERSION_META_KEY,
+     setNegotiatedProtocolVersion
+ } from '@modelcontextprotocol/core-internal';
+-import { describe, expect, it } from 'vitest';
++import { describe, expect, it, vi } from 'vitest';
+ 
+ import type { PerRequestResponseMode } from '../../src/server/perRequestTransport';
+ import { PerRequestHTTPServerTransport } from '../../src/server/perRequestTransport';
+@@ -46,14 +46,16 @@ interface StreamingSetup {
+ 
+ async function setup(
+     handler: (ctx: ServerContext) => Promise<CallToolResult>,
+-    responseMode?: PerRequestResponseMode
++    responseMode?: PerRequestResponseMode,
++    keepAliveMs?: number
+ ): Promise<StreamingSetup> {
+     const server = new Server({ name: 'streaming-test', version: '1.0.0' }, { capabilities: { tools: {} } });
+     server.setRequestHandler('tools/call', async (_request, ctx) => handler(ctx));
+     setNegotiatedProtocolVersion(server, MODERN_REVISION);
+     const transport = new PerRequestHTTPServerTransport({
+         classification: MODERN,
+-        ...(responseMode !== undefined && { responseMode })
++        ...(responseMode !== undefined && { responseMode }),
++        ...(keepAliveMs !== undefined && { keepAliveMs })
+     });
+     await server.connect(transport);
+     return { server, transport };
+@@ -92,7 +94,7 @@ describe('lazy upgrade matrix', () => {
+         const response = await transport.handleMessage(toolsCall());
+         expect(response.status).toBe(200);
+         expect(response.headers.get('content-type')).toBe('text/event-stream');
+-        expect(response.headers.get('cache-control')).toBe('no-cache');
++        expect(response.headers.get('cache-control')).toBe('no-cache, no-transform');
+         expect(response.headers.get('x-accel-buffering')).toBe('no');
+ 
+         const frames = await sseFrames(response);
+@@ -249,3 +251,54 @@ describe('disconnect is cancellation', () => {
+         expect(observedSignal?.aborted).toBe(true);
+     });
+ });
++
++describe('keep-alive', () => {
++    beforeEach(() => {
++        vi.useFakeTimers();
++    });
++
++    afterEach(() => {
++        vi.useRealTimers();
++    });
++
++    it('writes keep-alive comment frames while a forced-sse exchange is streaming', async () => {
++        let release!: () => void;
++        const gate = new Promise<void>(resolve => {
++            release = resolve;
++        });
++        const { transport } = await setup(async () => {
++            await gate;
++            return { content: [] };
++        }, 'sse');
++
++        const responsePromise = transport.handleMessage(toolsCall());
++        await vi.advanceTimersByTimeAsync(15_000);
++        release();
++        const response = await responsePromise;
++        const frames = await sseFrames(response);
++        expect(frames[0]).toBe(': keepalive');
++        expect(vi.getTimerCount()).toBe(0);
++    });
++
++    it('does not write keep-alive frames when keepAliveMs is 0', async () => {
++        let release!: () => void;
++        const gate = new Promise<void>(resolve => {
++            release = resolve;
++        });
++        const { transport } = await setup(
++            async () => {
++                await gate;
++                return { content: [] };
++            },
++            'sse',
++            0
++        );
++
++        const responsePromise = transport.handleMessage(toolsCall());
++        await vi.advanceTimersByTimeAsync(60_000);
++        release();
++        const response = await responsePromise;
++        const frames = await sseFrames(response);
++        expect(frames.some(frame => frame.startsWith(': keepalive'))).toBe(false);
++    });
++});
+diff --git a/packages/server/src/server/perRequestTransport.ts b/packages/server/src/server/perRequestTransport.ts
+index 5003946..5c17f9c 100644
+--- a/packages/server/src/server/perRequestTransport.ts
++++ b/packages/server/src/server/perRequestTransport.ts
+@@ -58,6 +58,8 @@ import {
+     SdkErrorCode
+ } from '@modelcontextprotocol/core-internal';
+ 
++import { armSseKeepAlive, DEFAULT_SSE_KEEP_ALIVE_MS } from './sseKeepAlive';
++
+ /**
+  * How the transport shapes its HTTP response for a request:
+  *
+@@ -79,6 +81,8 @@ export interface PerRequestHTTPServerTransportOptions {
+     classification: MessageClassification;
+     /** Response shaping for the exchange; defaults to `auto`. */
+     responseMode?: PerRequestResponseMode;
++    /** SSE keep-alive interval in milliseconds; defaults to `15000`, `0` disables. */
++    keepAliveMs?: number;
+ }
+ 
+ /** Per-exchange context handed to {@linkcode PerRequestHTTPServerTransport.handleMessage}. */
+@@ -107,6 +111,7 @@ interface SseSink {
+     controller: ReadableStreamDefaultController<Uint8Array>;
+     encoder: InstanceType<typeof TextEncoder>;
+     closed: boolean;
++    keepAliveTimer?: ReturnType<typeof setInterval>;
+ }
+ 
+ /**
+@@ -140,10 +145,12 @@ export class PerRequestHTTPServerTransport implements Transport {
+     private _deferredResponse?: DeferredResponse;
+     private _sse?: SseSink;
+     private _abortCleanup?: () => void;
++    private readonly _keepAliveMs: number;
+ 
+     constructor(options: PerRequestHTTPServerTransportOptions) {
+         this._classification = options.classification;
+         this._responseMode = options.responseMode ?? 'auto';
++        this._keepAliveMs = options.keepAliveMs ?? DEFAULT_SSE_KEEP_ALIVE_MS;
+     }
+ 
+     async start(): Promise<void> {
+@@ -343,6 +350,9 @@ export class PerRequestHTTPServerTransport implements Transport {
+         this._abortCleanup?.();
+         this._abortCleanup = undefined;
+ 
++        if (this._sse?.keepAliveTimer !== undefined) {
++            clearInterval(this._sse.keepAliveTimer);
++        }
+         if (this._sse !== undefined && !this._sse.closed) {
+             this._sse.closed = true;
+             try {
+@@ -382,13 +392,14 @@ export class PerRequestHTTPServerTransport implements Transport {
+             }
+         });
+         this._sse = { controller, encoder: new TextEncoder(), closed: false };
++        this._sse.keepAliveTimer = armSseKeepAlive(this._keepAliveMs, () => this.writeCommentFrame('keepalive'));
+ 
+         this.settleResponse(
+             new Response(readable, {
+                 status: 200,
+                 headers: {
+                     'Content-Type': 'text/event-stream',
+-                    'Cache-Control': 'no-cache',
++                    'Cache-Control': 'no-cache, no-transform',
+                     Connection: 'keep-alive',
+                     // Disable proxy buffering so streamed messages are
+                     // delivered as they are written.
+@@ -399,6 +410,9 @@ export class PerRequestHTTPServerTransport implements Transport {
+     }
+ 
+     private finalizeStream(): void {
++        if (this._sse?.keepAliveTimer !== undefined) {
++            clearInterval(this._sse.keepAliveTimer);
++        }
+         if (this._sse !== undefined && !this._sse.closed) {
+             this._sse.closed = true;
+             try {
+diff --git a/packages/server/src/server/createMcpHandler.ts b/packages/server/src/server/createMcpHandler.ts
+index f17deaa..a484869 100644
+--- a/packages/server/src/server/createMcpHandler.ts
++++ b/packages/server/src/server/createMcpHandler.ts
+@@ -59,13 +59,14 @@ import {
+ } from '@modelcontextprotocol/core-internal';
+ 
+ import { invoke } from './invoke';
+-import { createListenRouter, DEFAULT_LISTEN_KEEPALIVE_MS, DEFAULT_MAX_SUBSCRIPTIONS } from './listenRouter';
++import { createListenRouter, DEFAULT_MAX_SUBSCRIPTIONS } from './listenRouter';
+ import { McpServer } from './mcp';
+ import type { PerRequestResponseMode } from './perRequestTransport';
+ import type { Server } from './server';
+ import { installModernOnlyHandlers, seedClientIdentityFromEnvelope, serverIdentityOf } from './server';
+ import type { ServerEventBus, ServerNotifier } from './serverEventBus';
+ import { createServerNotifier, InMemoryServerEventBus } from './serverEventBus';
++import { DEFAULT_SSE_KEEP_ALIVE_MS } from './sseKeepAlive';
+ import { WebStandardStreamableHTTPServerTransport } from './streamableHttp';
+ 
+ /* ------------------------------------------------------------------------ *
+@@ -194,8 +195,8 @@ export interface CreateMcpHandlerOptions {
+      */
+     maxSubscriptions?: number;
+     /**
+-     * SSE comment-frame keepalive interval for `subscriptions/listen` streams,
+-     * in milliseconds. Set to `0` to disable.
++     * SSE comment-frame keepalive interval for every SSE stream this handler
++     * serves. In modern `auto` mode it starts after SSE upgrade. Set to `0` to disable.
+      * @default 15000
+      */
+     keepAliveMs?: number;
+@@ -306,7 +307,11 @@ function internalServerErrorResponse(id: RequestId | null = null): Response {
+  * The entry passes its own `onerror` here when expanding the default, so
+  * legacy-leg failures are never silently swallowed.
+  */
+-export function legacyStatelessFallback(factory: McpServerFactory, onerror?: (error: Error) => void): LegacyHttpHandler {
++function createLegacyStatelessFallback(
++    factory: McpServerFactory,
++    onerror?: (error: Error) => void,
++    keepAliveMs?: number
++): LegacyHttpHandler {
+     return async (request, options) => {
+         if (request.method.toUpperCase() !== 'POST') {
+             return jsonRpcErrorResponse(405, -32_000, 'Method not allowed.');
+@@ -317,7 +322,10 @@ export function legacyStatelessFallback(factory: McpServerFactory, onerror?: (er
+                 ...(options?.authInfo !== undefined && { authInfo: options.authInfo }),
+                 requestInfo: request
+             });
+-            const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
++            const transport = new WebStandardStreamableHTTPServerTransport({
++                sessionIdGenerator: undefined,
++                ...(keepAliveMs !== undefined && { keepAliveMs })
++            });
+             await product.connect(transport);
+ 
+             const teardown = () => {
+@@ -390,6 +398,10 @@ export function legacyStatelessFallback(factory: McpServerFactory, onerror?: (er
+     };
+ }
+ 
++export function legacyStatelessFallback(factory: McpServerFactory, onerror?: (error: Error) => void): LegacyHttpHandler {
++    return createLegacyStatelessFallback(factory, onerror);
++}
++
+ /* ------------------------------------------------------------------------ *
+  * The entry's classification step (shared with isLegacyRequest)
+  * ------------------------------------------------------------------------ */
+@@ -619,7 +631,7 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
+     const listenRouter = createListenRouter({
+         bus,
+         maxSubscriptions: options.maxSubscriptions ?? DEFAULT_MAX_SUBSCRIPTIONS,
+-        keepAliveMs: options.keepAliveMs ?? DEFAULT_LISTEN_KEEPALIVE_MS,
++        keepAliveMs: options.keepAliveMs ?? DEFAULT_SSE_KEEP_ALIVE_MS,
+         onerror: reportError
+     });
+     if (responseMode === 'json') {
+@@ -632,7 +644,8 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
+ 
+     // The default posture is the stateless fallback; 'reject' is the only way
+     // to turn legacy serving off (modern-only strict).
+-    const legacyHandler: LegacyHttpHandler | undefined = legacy === 'reject' ? undefined : legacyStatelessFallback(factory, reportError);
++    const legacyHandler: LegacyHttpHandler | undefined =
++        legacy === 'reject' ? undefined : createLegacyStatelessFallback(factory, reportError, options.keepAliveMs);
+ 
+     async function serveModern(route: InboundModernRoute, request: Request, authInfo: AuthInfo | undefined): Promise<Response> {
+         const claimedRevision = route.classification.revision;
+@@ -778,7 +791,8 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
+                 classification: route.classification,
+                 request,
+                 ...(authInfo !== undefined && { authInfo }),
+-                ...(responseMode !== undefined && { responseMode })
++                ...(responseMode !== undefined && { responseMode }),
++                ...(options.keepAliveMs !== undefined && { keepAliveMs: options.keepAliveMs })
+             });
+             if (route.messageKind === 'notification') {
+                 // Notification exchanges have no terminal response to ride the
+diff --git a/packages/server/test/server/streamableHttp.test.ts b/packages/server/test/server/streamableHttp.test.ts
+index beca451..87a30a2 100644
+--- a/packages/server/test/server/streamableHttp.test.ts
++++ b/packages/server/test/server/streamableHttp.test.ts
+@@ -1407,3 +1407,81 @@ describe('Zod v4', () => {
+         });
+     });
+ });
++
++describe('WebStandardStreamableHTTPServerTransport SSE keep-alive', () => {
++    async function createTransport(options?: { keepAliveMs?: number }): Promise<{
++        transport: WebStandardStreamableHTTPServerTransport;
++        sessionId: string;
++    }> {
++        const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: () => randomUUID(), ...options });
++        await new McpServer({ name: 'test-server', version: '1.0.0' }).connect(transport);
++        const initResponse = await transport.handleRequest(createRequest('POST', TEST_MESSAGES.initialize));
++        expect(initResponse.status).toBe(200);
++        return { transport, sessionId: initResponse.headers.get('mcp-session-id') as string };
++    }
++
++    beforeEach(() => {
++        vi.useFakeTimers();
++    });
++
++    afterEach(() => {
++        vi.useRealTimers();
++    });
++
++    it('writes keep-alive comment frames to an idle standalone GET stream and cleans up on close', async () => {
++        const { transport, sessionId } = await createTransport();
++        const response = await transport.handleRequest(createRequest('GET', undefined, { sessionId }));
++        expect(response.headers.get('cache-control')).toBe('no-cache, no-transform');
++        expect(response.headers.get('x-accel-buffering')).toBe('no');
++
++        const reader = response.body!.getReader();
++        await vi.advanceTimersByTimeAsync(15_000);
++        const { value } = await reader.read();
++        expect(new TextDecoder().decode(value)).toBe(': keepalive\n\n');
++
++        await transport.close();
++        expect(vi.getTimerCount()).toBe(0);
++    });
++
++    it('cleans up the keep-alive timer when the client cancels', async () => {
++        const { transport, sessionId } = await createTransport();
++        const response = await transport.handleRequest(createRequest('GET', undefined, { sessionId }));
++        expect(vi.getTimerCount()).toBe(1);
++
++        await response.body!.cancel();
++        expect(vi.getTimerCount()).toBe(0);
++        await transport.close();
++    });
++
++    it('writes keep-alive frames on a POST SSE stream while a request is pending', async () => {
++        const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: () => randomUUID() });
++        const mcpServer = new McpServer({ name: 'test-server', version: '1.0.0' });
++        let resolveTool: (() => void) | undefined;
++        mcpServer.registerTool('slow', { description: 'waits until released' }, async (): Promise<CallToolResult> => {
++            await new Promise<void>(resolve => {
++                resolveTool = resolve;
++            });
++            return { content: [{ type: 'text', text: 'done' }] };
++        });
++        await mcpServer.connect(transport);
++
++        const initResponse = await transport.handleRequest(createRequest('POST', TEST_MESSAGES.initialize));
++        const sessionId = initResponse.headers.get('mcp-session-id') as string;
++        const response = await transport.handleRequest(
++            createRequest(
++                'POST',
++                { jsonrpc: '2.0', method: 'tools/call', params: { name: 'slow', arguments: {} }, id: 'call-1' } as JSONRPCMessage,
++                { sessionId }
++            )
++        );
++        const reader = response.body!.getReader();
++
++        await vi.advanceTimersByTimeAsync(15_000);
++        const { value } = await reader.read();
++        expect(new TextDecoder().decode(value)).toBe(': keepalive\n\n');
++
++        resolveTool?.();
++        await transport.close();
++        expect(vi.getTimerCount()).toBe(0);
++    });
++});
+diff --git a/packages/server/src/server/listenRouter.ts b/packages/server/src/server/listenRouter.ts
+index 96dcb16..40c4a38 100644
+--- a/packages/server/src/server/listenRouter.ts
++++ b/packages/server/src/server/listenRouter.ts
+@@ -34,9 +34,7 @@ import { codecForVersion, MODERN_WIRE_REVISION, SERVER_INFO_META_KEY, SUBSCRIPTI
+ 
+ import type { ServerEventBus } from './serverEventBus';
+ import { honoredSubset, listenFilterAccepts, serverEventToNotification } from './serverEventBus';
+-
+-/** Default SSE comment-frame keepalive interval for listen streams. */
+-export const DEFAULT_LISTEN_KEEPALIVE_MS = 15_000;
++import { armSseKeepAlive, DEFAULT_SSE_KEEP_ALIVE_MS } from './sseKeepAlive';
+ 
+ /** Default capacity guard: refuse a new subscription when this many are already open. */
+ export const DEFAULT_MAX_SUBSCRIPTIONS = 1024;
+@@ -124,7 +122,7 @@ export interface ListenRouter {
+ export function createListenRouter(options: ListenRouterOptions): ListenRouter {
+     const { bus, onerror } = options;
+     const maxSubscriptions = options.maxSubscriptions ?? DEFAULT_MAX_SUBSCRIPTIONS;
+-    const keepAliveMs = options.keepAliveMs ?? DEFAULT_LISTEN_KEEPALIVE_MS;
++    const keepAliveMs = options.keepAliveMs ?? DEFAULT_SSE_KEEP_ALIVE_MS;
+ 
+     const open = new Set<(graceful: boolean) => void>();
+ 
+@@ -188,7 +186,11 @@ export function createListenRouter(options: ListenRouterOptions): ListenRouter {
+                 );
+             }
+             closed = true;
+-            unsubscribe?.();
++            try {
++                unsubscribe?.();
++            } catch (error) {
++                onerror?.(error instanceof Error ? error : new Error(String(error)));
++            }
+             if (keepAliveTimer !== undefined) clearInterval(keepAliveTimer);
+             abortCleanup?.();
+             open.delete(teardown);
+@@ -218,14 +220,7 @@ export function createListenRouter(options: ListenRouterOptions): ListenRouter {
+                     writeNotification(note.method, note.params);
+                 });
+ 
+-                if (keepAliveMs > 0) {
+-                    keepAliveTimer = setInterval(() => writeFrame(': keepalive\n\n'), keepAliveMs);
+-                    // Do not hold the event loop open on idle subscriptions. Node's
+-                    // setInterval returns a Timeout with .unref(); browsers/Workers
+-                    // return a number — the cast is an environment shim, not a
+-                    // workaround for SDK typing.
+-                    (keepAliveTimer as { unref?: () => void }).unref?.();
+-                }
++                keepAliveTimer = armSseKeepAlive(keepAliveMs, () => writeFrame(': keepalive\n\n'));
+ 
+                 open.add(teardown);
+             },
+@@ -251,7 +246,7 @@ export function createListenRouter(options: ListenRouterOptions): ListenRouter {
+             status: 200,
+             headers: {
+                 'Content-Type': 'text/event-stream',
+-                'Cache-Control': 'no-cache',
++                'Cache-Control': 'no-cache, no-transform',
+                 Connection: 'keep-alive',
+                 'X-Accel-Buffering': 'no'
+             }
+diff --git a/packages/server/src/server/invoke.ts b/packages/server/src/server/invoke.ts
+index 6966968..1a69849 100644
+--- a/packages/server/src/server/invoke.ts
++++ b/packages/server/src/server/invoke.ts
+@@ -35,6 +35,8 @@ export interface InvokeContext {
+     authInfo?: AuthInfo;
+     /** Response shaping for the exchange; defaults to `auto` (lazy SSE upgrade). */
+     responseMode?: PerRequestResponseMode;
++    /** SSE keep-alive interval for the exchange. */
++    keepAliveMs?: number;
+ }
+ 
+ /**
+@@ -58,7 +60,8 @@ export async function invoke(
+ ): Promise<Response> {
+     const transport = new PerRequestHTTPServerTransport({
+         classification: ctx.classification,
+-        ...(ctx.responseMode !== undefined && { responseMode: ctx.responseMode })
++        ...(ctx.responseMode !== undefined && { responseMode: ctx.responseMode }),
++        ...(ctx.keepAliveMs !== undefined && { keepAliveMs: ctx.keepAliveMs })
+     });
+     await server.connect(transport);
+     return transport.handleMessage(message, {
+

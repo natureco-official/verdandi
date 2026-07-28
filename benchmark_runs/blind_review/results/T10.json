@@ -1,0 +1,129 @@
+{
+  "schemaVersion": 1,
+  "taskId": "T10",
+  "reviewer": "gemini-cli",
+  "assignment": {
+    "X": "codex-capsule",
+    "Y": "codex"
+  },
+  "preference": "X",
+  "preferredVariant": "codex-capsule",
+  "scores": {
+    "X": 25,
+    "Y": 23,
+    "codex": 23,
+    "codexCapsule": 25
+  },
+  "review": {
+    "schemaVersion": 1,
+    "taskId": "T10",
+    "preference": "X",
+    "confidence": 0.95,
+    "solutions": {
+      "X": {
+        "correctness": 5,
+        "coverage": 5,
+        "simplicity": 5,
+        "maintainability": 5,
+        "regressionSafety": 5,
+        "strengths": [
+          "Refactors the shared transport's stream mapping logic into a centralized factory method (`createSseStreamMapping`), significantly improving maintainability by consolidating redundant cleanup logic previously scattered across 4+ locations.",
+          "Provides a robust `writeSSEComment` utility that correctly handles multi-line comments and pipes errors to the `onerror` handler.",
+          "Correctly implements keep-alive for both shared (`WebStandardStreamableHTTPServerTransport`) and per-request (`PerRequestHTTPServerTransport`) paths with clean timer management.",
+          "High-quality tests using Vitest's fake timers and explicit timer count assertions."
+        ],
+        "fatalFlaws": []
+      },
+      "Y": {
+        "correctness": 5,
+        "coverage": 5,
+        "simplicity": 4,
+        "maintainability": 4,
+        "regressionSafety": 5,
+        "strengths": [
+          "Adds critical HTTP headers (`X-Accel-Buffering: no` and `no-transform`) which are essential for preventing intermediaries like Nginx from buffering SSE streams.",
+          "Includes helpful troubleshooting documentation for the new feature.",
+          "Implements robustness checks (`this._closed`) in request handlers."
+        ],
+        "fatalFlaws": [
+          "Logic duplication: the keep-alive timer clearing logic is repeated manually in every stream 'cancel' and 'cleanup' closure rather than being abstracted.",
+          "The use of an external utility for keep-alive is less cohesive than X's internal refactor of the mapping resource."
+        ]
+      }
+    },
+    "rationale": "Solution X is preferred due to superior engineering of the transport's internal state management. The `WebStandardStreamableHTTPServerTransport` class is complex, managing multiple sessions and resume-states; Solution X's decision to refactor the `StreamMapping` into a managed resource with a centralized `cleanup` method is a significant structural improvement that eliminates code duplication and reduces the surface area for resource leaks. While Solution Y provides better HTTP headers (`X-Accel-Buffering`) which are practically useful for the task's goals, Solution X's code is more idiomatic and maintainable. Solution X's implementation of multi-line comment support and explicit error handling in `writeSSEComment` also shows higher attention to detail for a core transport utility. Both solutions correctly handle per-request and shared paths and pass all validation steps. Note: Both solutions contain a minor artifact (context leak) in their JSDoc comments regarding 'capsule-baseline-worktrees', which is ignored for scoring.",
+    "requiredFollowups": []
+  },
+  "usage": {
+    "gemini-3.1-pro-preview-customtools": {
+      "api": {
+        "totalRequests": 1,
+        "totalErrors": 1,
+        "totalLatencyMs": 331
+      },
+      "tokens": {
+        "input": 0,
+        "prompt": 0,
+        "candidates": 0,
+        "total": 0,
+        "cached": 0,
+        "thoughts": 0,
+        "tool": 0
+      },
+      "roles": {
+        "main": {
+          "totalRequests": 1,
+          "totalErrors": 1,
+          "totalLatencyMs": 331,
+          "tokens": {
+            "input": 0,
+            "prompt": 0,
+            "candidates": 0,
+            "total": 0,
+            "cached": 0,
+            "thoughts": 0,
+            "tool": 0
+          }
+        }
+      }
+    },
+    "gemini-3-flash-preview": {
+      "api": {
+        "totalRequests": 1,
+        "totalErrors": 0,
+        "totalLatencyMs": 43947
+      },
+      "tokens": {
+        "input": 26665,
+        "prompt": 26665,
+        "candidates": 542,
+        "total": 33937,
+        "cached": 0,
+        "thoughts": 6730,
+        "tool": 0
+      },
+      "roles": {
+        "main": {
+          "totalRequests": 1,
+          "totalErrors": 0,
+          "totalLatencyMs": 43947,
+          "tokens": {
+            "input": 26665,
+            "prompt": 26665,
+            "candidates": 542,
+            "total": 33937,
+            "cached": 0,
+            "thoughts": 6730,
+            "tool": 0
+          }
+        }
+      }
+    }
+  },
+  "warnings": [
+    "Warning: Basic terminal detected (TERM=dumb). Visual rendering will be limited. For the best experience, use a terminal emulator with truecolor support.",
+    "Warning: 256-color support not detected. Using a terminal with at least 256-color support is recommended for a better visual experience.",
+    "[STARTUP] Phase 'cleanup_ops' was started but never ended. Skipping metrics.",
+    "[STARTUP] Cannot measure phase 'cleanup_ops': start mark 'startup:cleanup_ops:start' not found (likely cleared by reset)."
+  ]
+}

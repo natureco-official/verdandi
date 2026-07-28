@@ -1,0 +1,670 @@
+[
+  {
+    "taskId": "T01",
+    "task": "Client auth modulundeki import siralamasini depo lint kurallarina uygun hale get",
+    "worktree": "/private/tmp/capsule-baseline-worktrees/T01-codex",
+    "capsuleTimeMs": 2478,
+    "readTimeMs": 127,
+    "totalTimeMs": 2605,
+    "capsuleTokens": 281,
+    "confidence": 0.95,
+    "symbolCount": 5,
+    "symbolsRead": 5,
+    "totalReadTokens": 1065,
+    "totalFreshTokens": 1346,
+    "probableFiles": [
+      "packages/client/src/client/auth.ts"
+    ],
+    "readResults": [
+      {
+        "symbol": "AddClientAuthentication",
+        "file": "packages/client/src/client/auth.ts",
+        "lines": [
+          40,
+          45
+        ],
+        "sourceLength": 183,
+        "tokens": 154
+      },
+      {
+        "symbol": "UnauthorizedContext",
+        "file": "packages/client/src/client/auth.ts",
+        "lines": [
+          51,
+          58
+        ],
+        "sourceLength": 384,
+        "tokens": 204
+      },
+      {
+        "symbol": "AuthProvider",
+        "file": "packages/client/src/client/auth.ts",
+        "lines": [
+          76,
+          92
+        ],
+        "sourceLength": 692,
+        "tokens": 280
+      },
+      {
+        "symbol": "token",
+        "file": "packages/client/src/client/auth.ts",
+        "lines": [
+          81,
+          81
+        ],
+        "sourceLength": 37,
+        "tokens": 303
+      },
+      {
+        "symbol": "onUnauthorized",
+        "file": "packages/client/src/client/auth.ts",
+        "lines": [
+          91,
+          91
+        ],
+        "sourceLength": 57,
+        "tokens": 124
+      }
+    ]
+  },
+  {
+    "taskId": "T02",
+    "task": "Test altyapisini kur: server ve client icin shared test utility, mock server fac",
+    "worktree": "/private/tmp/capsule-baseline-worktrees/T02-codex",
+    "capsuleTimeMs": 1551,
+    "readTimeMs": 44,
+    "totalTimeMs": 1595,
+    "capsuleTokens": 294,
+    "confidence": 0.95,
+    "symbolCount": 4,
+    "symbolsRead": 4,
+    "totalReadTokens": 2342,
+    "totalFreshTokens": 2636,
+    "probableFiles": [
+      "packages/client/test/client/sse.test.ts",
+      "test/e2e/scenarios/client-auth.test.ts",
+      "packages/client/src/client/client.ts"
+    ],
+    "readResults": [
+      {
+        "symbol": "createCustomFetchMockAuthServer",
+        "file": "packages/client/test/client/sse.test.ts",
+        "lines": [
+          1229,
+          1288
+        ],
+        "sourceLength": 2941,
+        "tokens": 864
+      },
+      {
+        "symbol": "createCustomFetchMockResourceServer",
+        "file": "packages/client/test/client/sse.test.ts",
+        "lines": [
+          1290,
+          1317
+        ],
+        "sourceLength": 1130,
+        "tokens": 405
+      },
+      {
+        "symbol": "createMockAuthorizationServer",
+        "file": "test/e2e/scenarios/client-auth.test.ts",
+        "lines": [
+          72,
+          176
+        ],
+        "sourceLength": 3200,
+        "tokens": 935
+      },
+      {
+        "symbol": "getServerCapabilities",
+        "file": "packages/client/src/client/client.ts",
+        "lines": [
+          479,
+          481
+        ],
+        "sourceLength": 104,
+        "tokens": 138
+      }
+    ]
+  },
+  {
+    "taskId": "T03",
+    "task": "Cloudflare Workers surumunde process nesnesi sizarini tespit et ve duzelt.",
+    "worktree": "/private/tmp/capsule-baseline-worktrees/T03-codex",
+    "capsuleTimeMs": 1050,
+    "readTimeMs": 43,
+    "totalTimeMs": 1093,
+    "capsuleTokens": 261,
+    "confidence": 0.95,
+    "symbolCount": 4,
+    "symbolsRead": 4,
+    "totalReadTokens": 893,
+    "totalFreshTokens": 1154,
+    "probableFiles": [
+      "test/integration/test/server/cloudflareWorkers.test.ts"
+    ],
+    "readResults": [
+      {
+        "symbol": "processGroupIsRunning",
+        "file": "test/integration/test/server/cloudflareWorkers.test.ts",
+        "lines": [
+          22,
+          29
+        ],
+        "sourceLength": 212,
+        "tokens": 170
+      },
+      {
+        "symbol": "waitForProcessGroupExit",
+        "file": "test/integration/test/server/cloudflareWorkers.test.ts",
+        "lines": [
+          31,
+          40
+        ],
+        "sourceLength": 375,
+        "tokens": 216
+      },
+      {
+        "symbol": "terminateProcessTree",
+        "file": "test/integration/test/server/cloudflareWorkers.test.ts",
+        "lines": [
+          43,
+          78
+        ],
+        "sourceLength": 1004,
+        "tokens": 379
+      },
+      {
+        "symbol": "processExitedWithCode",
+        "file": "test/integration/test/server/cloudflareWorkers.test.ts",
+        "lines": [
+          98,
+          98
+        ],
+        "sourceLength": 52,
+        "tokens": 128
+      }
+    ]
+  },
+  {
+    "taskId": "T04",
+    "task": "Regresyon testleri yaz: OAuth token refresh, session hijyeni, ve streamable HTTP",
+    "worktree": "/private/tmp/capsule-baseline-worktrees/T04-codex",
+    "capsuleTimeMs": 991,
+    "readTimeMs": 41,
+    "totalTimeMs": 1032,
+    "capsuleTokens": 272,
+    "confidence": 0.95,
+    "symbolCount": 4,
+    "symbolsRead": 4,
+    "totalReadTokens": 739,
+    "totalFreshTokens": 1011,
+    "probableFiles": [
+      "examples/client/src/simpleStreamableHttp.ts",
+      "examples/server/src/jsonResponseStreamableHttp.ts",
+      "examples/server/src/simpleStreamableHttp.ts"
+    ],
+    "readResults": [
+      {
+        "symbol": "sessionId",
+        "file": "examples/client/src/simpleStreamableHttp.ts",
+        "lines": [
+          28,
+          28
+        ],
+        "sourceLength": 29,
+        "tokens": 111
+      },
+      {
+        "symbol": "terminateSession",
+        "file": "examples/client/src/simpleStreamableHttp.ts",
+        "lines": [
+          514,
+          542
+        ],
+        "sourceLength": 1050,
+        "tokens": 380
+      },
+      {
+        "symbol": "sessionId",
+        "file": "examples/server/src/jsonResponseStreamableHttp.ts",
+        "lines": [
+          89,
+          89
+        ],
+        "sourceLength": 63,
+        "tokens": 130
+      },
+      {
+        "symbol": "useOAuth",
+        "file": "examples/server/src/simpleStreamableHttp.ts",
+        "lines": [
+          21,
+          21
+        ],
+        "sourceLength": 43,
+        "tokens": 118
+      }
+    ]
+  },
+  {
+    "taskId": "T05",
+    "task": "Hata ayiklama: auth modulundeki token yenileme hatasini bul ve duzelt.",
+    "worktree": "/private/tmp/capsule-baseline-worktrees/T05-codex",
+    "capsuleTimeMs": 2564,
+    "readTimeMs": 125,
+    "totalTimeMs": 2689,
+    "capsuleTokens": 294,
+    "confidence": 0.95,
+    "symbolCount": 6,
+    "symbolsRead": 6,
+    "totalReadTokens": 1803,
+    "totalFreshTokens": 2097,
+    "probableFiles": [
+      "packages/client/src/client/auth.ts"
+    ],
+    "readResults": [
+      {
+        "symbol": "token",
+        "file": "packages/client/src/client/auth.ts",
+        "lines": [
+          81,
+          81
+        ],
+        "sourceLength": 37,
+        "tokens": 303
+      },
+      {
+        "symbol": "tokens",
+        "file": "packages/client/src/client/auth.ts",
+        "lines": [
+          216,
+          216
+        ],
+        "sourceLength": 32,
+        "tokens": 720
+      },
+      {
+        "symbol": "saveTokens",
+        "file": "packages/client/src/client/auth.ts",
+        "lines": [
+          305,
+          305
+        ],
+        "sourceLength": 97,
+        "tokens": 143
+      },
+      {
+        "symbol": "prepareTokenRequest",
+        "file": "packages/client/src/client/auth.ts",
+        "lines": [
+          396,
+          396
+        ],
+        "sourceLength": 105,
+        "tokens": 149
+      },
+      {
+        "symbol": "assertSecureTokenEndpoint",
+        "file": "packages/client/src/client/auth.ts",
+        "lines": [
+          841,
+          847
+        ],
+        "sourceLength": 275,
+        "tokens": 296
+      },
+      {
+        "symbol": "newTokens",
+        "file": "packages/client/src/client/auth.ts",
+        "lines": [
+          1308,
+          1315
+        ],
+        "sourceLength": 317,
+        "tokens": 192
+      }
+    ]
+  },
+  {
+    "taskId": "T06",
+    "task": "Protokol ayristirma: inbound message classification ve header validation ekle.",
+    "worktree": "/private/tmp/capsule-baseline-worktrees/T06-codex",
+    "capsuleTimeMs": 2589,
+    "readTimeMs": 85,
+    "totalTimeMs": 2674,
+    "capsuleTokens": 272,
+    "confidence": 0.95,
+    "symbolCount": 4,
+    "symbolsRead": 4,
+    "totalReadTokens": 2185,
+    "totalFreshTokens": 2457,
+    "probableFiles": [
+      "packages/core-internal/src/shared/inboundClassification.ts"
+    ],
+    "readResults": [
+      {
+        "symbol": "validateStandardRequestHeaders",
+        "file": "packages/core-internal/src/shared/inboundClassification.ts",
+        "lines": [
+          502,
+          564
+        ],
+        "sourceLength": 2647,
+        "tokens": 926
+      },
+      {
+        "symbol": "InboundValidationRung",
+        "file": "packages/core-internal/src/shared/inboundClassification.ts",
+        "lines": [
+          170,
+          179
+        ],
+        "sourceLength": 264,
+        "tokens": 180
+      },
+      {
+        "symbol": "INBOUND_VALIDATION_LADDER",
+        "file": "packages/core-internal/src/shared/inboundClassification.ts",
+        "lines": [
+          260,
+          366
+        ],
+        "sourceLength": 3200,
+        "tokens": 940
+      },
+      {
+        "symbol": "trimHeaderOws",
+        "file": "packages/core-internal/src/shared/inboundClassification.ts",
+        "lines": [
+          81,
+          83
+        ],
+        "sourceLength": 102,
+        "tokens": 139
+      }
+    ]
+  },
+  {
+    "taskId": "T07",
+    "task": "Oturum hijyeni: session lifecycle yonetimi ve temizlik mekanizmasi.",
+    "worktree": "/private/tmp/capsule-baseline-worktrees/T07-codex",
+    "capsuleTimeMs": 2585,
+    "readTimeMs": 140,
+    "totalTimeMs": 2725,
+    "capsuleTokens": 298,
+    "confidence": 0.95,
+    "symbolCount": 6,
+    "symbolsRead": 6,
+    "totalReadTokens": 3518,
+    "totalFreshTokens": 3816,
+    "probableFiles": [
+      "examples/cli-client/script/session.ts"
+    ],
+    "readResults": [
+      {
+        "symbol": "ScriptedSession",
+        "file": "examples/cli-client/script/session.ts",
+        "lines": [
+          14,
+          22
+        ],
+        "sourceLength": 436,
+        "tokens": 216
+      },
+      {
+        "symbol": "verify",
+        "file": "examples/cli-client/script/session.ts",
+        "lines": [
+          21,
+          21
+        ],
+        "sourceLength": 126,
+        "tokens": 1075
+      },
+      {
+        "symbol": "messageText",
+        "file": "examples/cli-client/script/session.ts",
+        "lines": [
+          24,
+          26
+        ],
+        "sourceLength": 153,
+        "tokens": 147
+      },
+      {
+        "symbol": "lastMessage",
+        "file": "examples/cli-client/script/session.ts",
+        "lines": [
+          28,
+          32
+        ],
+        "sourceLength": 184,
+        "tokens": 157
+      },
+      {
+        "symbol": "message",
+        "file": "examples/cli-client/script/session.ts",
+        "lines": [
+          29,
+          29
+        ],
+        "sourceLength": 33,
+        "tokens": 659
+      },
+      {
+        "symbol": "buildScriptedSession",
+        "file": "examples/cli-client/script/session.ts",
+        "lines": [
+          34,
+          343
+        ],
+        "sourceLength": 3200,
+        "tokens": 1264
+      }
+    ]
+  },
+  {
+    "taskId": "T08",
+    "task": "Build hatasini duzelt: middleware paketleri icin build, lint ve typecheck caliss",
+    "worktree": "/private/tmp/capsule-baseline-worktrees/T08-codex",
+    "capsuleTimeMs": 925,
+    "readTimeMs": 42,
+    "totalTimeMs": 967,
+    "capsuleTokens": 280,
+    "confidence": 0.95,
+    "symbolCount": 4,
+    "symbolsRead": 4,
+    "totalReadTokens": 1885,
+    "totalFreshTokens": 2165,
+    "probableFiles": [
+      "packages/middleware/express/src/auth/bearerAuth.ts",
+      "packages/server-legacy/src/auth/middleware/bearerAuth.ts",
+      "packages/client/src/client/middleware.ts"
+    ],
+    "readResults": [
+      {
+        "symbol": "buildWwwAuthenticateHeader",
+        "file": "packages/middleware/express/src/auth/bearerAuth.ts",
+        "lines": [
+          31,
+          45
+        ],
+        "sourceLength": 480,
+        "tokens": 237
+      },
+      {
+        "symbol": "buildWwwAuthHeader",
+        "file": "packages/server-legacy/src/auth/middleware/bearerAuth.ts",
+        "lines": [
+          42,
+          51
+        ],
+        "sourceLength": 412,
+        "tokens": 227
+      },
+      {
+        "symbol": "withLogging",
+        "file": "packages/client/src/client/middleware.ts",
+        "lines": [
+          158,
+          231
+        ],
+        "sourceLength": 2733,
+        "tokens": 1027
+      },
+      {
+        "symbol": "defaultLogger",
+        "file": "packages/client/src/client/middleware.ts",
+        "lines": [
+          161,
+          186
+        ],
+        "sourceLength": 1120,
+        "tokens": 394
+      }
+    ]
+  },
+  {
+    "taskId": "T09",
+    "task": "Cache refactor: response cache codec ve param mirroring yeniden yaz.",
+    "worktree": "/private/tmp/capsule-baseline-worktrees/T09-codex",
+    "capsuleTimeMs": 2632,
+    "readTimeMs": 96,
+    "totalTimeMs": 2728,
+    "capsuleTokens": 291,
+    "confidence": 0.95,
+    "symbolCount": 5,
+    "symbolsRead": 5,
+    "totalReadTokens": 1963,
+    "totalFreshTokens": 2254,
+    "probableFiles": [
+      "packages/client/src/client/responseCache.ts",
+      "packages/core-internal/src/wire/codec.ts"
+    ],
+    "readResults": [
+      {
+        "symbol": "params",
+        "file": "packages/client/src/client/responseCache.ts",
+        "lines": [
+          521,
+          521
+        ],
+        "sourceLength": 32,
+        "tokens": 112
+      },
+      {
+        "symbol": "encodeCacheValue",
+        "file": "packages/client/src/client/responseCache.ts",
+        "lines": [
+          671,
+          680
+        ],
+        "sourceLength": 434,
+        "tokens": 222
+      },
+      {
+        "symbol": "validateInputResponse",
+        "file": "packages/core-internal/src/wire/codec.ts",
+        "lines": [
+          194,
+          194
+        ],
+        "sourceLength": 107,
+        "tokens": 290
+      },
+      {
+        "symbol": "ClientResponseCache",
+        "file": "packages/client/src/client/responseCache.ts",
+        "lines": [
+          268,
+          664
+        ],
+        "sourceLength": 3200,
+        "tokens": 922
+      },
+      {
+        "symbol": "write",
+        "file": "packages/client/src/client/responseCache.ts",
+        "lines": [
+          514,
+          544
+        ],
+        "sourceLength": 1245,
+        "tokens": 417
+      }
+    ]
+  },
+  {
+    "taskId": "T10",
+    "task": "SSE keep-alive ve per-request streaming mekanizmasini calistir.",
+    "worktree": "/private/tmp/capsule-baseline-worktrees/T10-codex",
+    "capsuleTimeMs": 2746,
+    "readTimeMs": 75,
+    "totalTimeMs": 2821,
+    "capsuleTokens": 292,
+    "confidence": 0.95,
+    "symbolCount": 5,
+    "symbolsRead": 5,
+    "totalReadTokens": 1132,
+    "totalFreshTokens": 1424,
+    "probableFiles": [
+      "packages/server/src/server/perRequestTransport.ts",
+      "packages/server/src/server/sseKeepAlive.ts"
+    ],
+    "readResults": [
+      {
+        "symbol": "SseSink",
+        "file": "packages/server/src/server/perRequestTransport.ts",
+        "lines": [
+          110,
+          115
+        ],
+        "sourceLength": 203,
+        "tokens": 155
+      },
+      {
+        "symbol": "upgradeToSse",
+        "file": "packages/server/src/server/perRequestTransport.ts",
+        "lines": [
+          381,
+          410
+        ],
+        "sourceLength": 1247,
+        "tokens": 528
+      },
+      {
+        "symbol": "DEFAULT_SSE_KEEP_ALIVE_MS",
+        "file": "packages/server/src/server/sseKeepAlive.ts",
+        "lines": [
+          2,
+          2
+        ],
+        "sourceLength": 34,
+        "tokens": 117
+      },
+      {
+        "symbol": "MAX_TIMER_DELAY_MS",
+        "file": "packages/server/src/server/sseKeepAlive.ts",
+        "lines": [
+          4,
+          4
+        ],
+        "sourceLength": 32,
+        "tokens": 114
+      },
+      {
+        "symbol": "armSseKeepAlive",
+        "file": "packages/server/src/server/sseKeepAlive.ts",
+        "lines": [
+          7,
+          15
+        ],
+        "sourceLength": 358,
+        "tokens": 218
+      }
+    ]
+  }
+]

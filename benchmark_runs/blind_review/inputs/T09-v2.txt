@@ -1,0 +1,1012 @@
+You are an independent senior TypeScript code reviewer. Compare two anonymized solutions to the same task.
+
+Rules:
+- Use only the task, patches, and validation summaries below. Do not use tools or infer author/model identity.
+- Passing tests are evidence, not proof. Inspect edge cases, scope, cleanup, concurrency, public API, and regression risk.
+- Penalize unnecessary edits and tests that do not actually prove the requested behavior.
+- Score each dimension from 1 (poor) to 5 (excellent).
+- Prefer X, Y, or tie. A tie is valid when patches are materially equivalent.
+- confidence MUST be a decimal number from 0 through 1 (for example 0.85), never a percentage.
+- Return only one syntactically valid JSON object. Escape every quote inside string values; do not use Markdown fences.
+
+Required JSON shape:
+{"schemaVersion":1,"taskId":"T09","preference":"X|Y|tie","confidence":0.0,"solutions":{"X":{"correctness":1,"coverage":1,"simplicity":1,"maintainability":1,"regressionSafety":1,"strengths":[],"fatalFlaws":[]},"Y":{"correctness":1,"coverage":1,"simplicity":1,"maintainability":1,"regressionSafety":1,"strengths":[],"fatalFlaws":[]}},"rationale":"max 2000 chars","requiredFollowups":[]}
+
+TASK
+Görev: Client response cache'i runtime nesneleri yerine serialize edilmiş protocol document'ları saklayacak biçimde değiştir ve `structuredClone` bağımlılığını kaldır.
+Başarı kriteri: Cache codec round-trip testleri, parametre aynalama ve response cache testleri geçer; cache hit davranışı ve public API korunur.
+
+SOLUTION X VALIDATION
+[{"kind":"test","status":"PASS","timedOut":false},{"kind":"lint","status":"PASS","timedOut":false},{"kind":"typecheck","status":"PASS","timedOut":false}]
+
+SOLUTION X PATCH
+diff --git a/packages/client/src/client/client.ts b/packages/client/src/client/client.ts
+index 5028e93..5bba6b8 100644
+--- a/packages/client/src/client/client.ts
++++ b/packages/client/src/client/client.ts
+@@ -1682,8 +1682,8 @@ export class Client extends Protocol<ClientContext> {
+     /**
+      * The cache-serving front of every cacheable verb (mcp.d's `cachedFetch`
+      * read half): under `cacheMode: 'use'` (the default), a held entry whose
+-     * `expiresAt` is in the future is returned as a `structuredClone` and the
+-     * round trip is skipped. `'refresh'` and `'bypass'` always fetch (the
++     * `expiresAt` is in the future is returned from a freshly decoded cache
++     * document and the round trip is skipped. `'refresh'` and `'bypass'` always fetch (the
+      * caller decides whether to write). A custom store whose `get()` rejects
+      * is routed to `onerror` and treated as a miss — cache bookkeeping never
+      * blocks a request from reaching the wire.
+@@ -1705,11 +1705,11 @@ export class Client extends Protocol<ClientContext> {
+                 const reason = options.signal.reason;
+                 throw reason instanceof SdkError ? reason : new SdkError(SdkErrorCode.RequestTimeout, String(reason));
+             }
+-            // Clone on the way out so a caller mutating the returned aggregate
+-            // (e.g. `result.tools.sort(...)`) cannot reach the cache or the
+-            // stamp-memoized indices derived from it — the same invariant
+-            // `_cache.write` upholds on the way in.
+-            return structuredClone(entry.value) as R;
++            // ClientResponseCache decodes the stored JSON document on every
++            // read, so this value is already a fresh object. A caller can
++            // mutate it without reaching the stored document or the
++            // stamp-memoized indices derived from another decode.
++            return entry.value as R;
+         }
+         return undefined;
+     }
+diff --git a/packages/client/src/client/responseCache.ts b/packages/client/src/client/responseCache.ts
+index 171d4cf..d16e4c4 100644
+--- a/packages/client/src/client/responseCache.ts
++++ b/packages/client/src/client/responseCache.ts
+@@ -52,11 +52,14 @@ export interface CacheKey {
+ }
+ 
+ /**
+- * One cached response body. `value` is the verbatim decoded result; `stamp` is
+- * the store-generated monotonically increasing write counter — opaque to
+- * callers. Derived views (e.g. a `name → Tool` index) memoize against it and
+- * re-derive only when it changes. `expiresAt` (absolute ms epoch, `now +
+- * ttlMs`) and `scope` are the client-computed freshness metadata; the store
++ * One cached response body. Values written by the client are serialized JSON
++ * protocol documents rather than live result objects. The `unknown` type is
++ * retained for source compatibility with existing custom stores; the client
++ * can also read their legacy decoded-object entries during migration.
++ * `stamp` is the store-generated monotonically increasing write counter —
++ * opaque to callers. Derived views (e.g. a `name → Tool` index) memoize
++ * against it and re-derive only when it changes. `expiresAt` (absolute ms
++ * epoch, `now + ttlMs`) and `scope` are the client-computed freshness metadata; the store
+  * MUST persist them and hand them back on `get` so the read path can decide
+  * freshness and gate the shared-partition fallback on `scope === 'public'`.
+  */
+@@ -94,7 +97,8 @@ export interface ResponseCacheStore {
+      * resulting {@linkcode CacheEntry} carries. The store owns the stamp
+      * counter; callers do not supply one. The caller owns `expiresAt` and
+      * `scope` (the client-computed freshness metadata); the store MUST persist
+-     * them and hand them back on `get`.
++     * them and hand them back on `get`. Client writes carry `value` as a
++     * serialized JSON protocol document.
+      */
+     set(key: CacheKey, entry: { value: unknown; expiresAt?: number; scope?: CacheScope }): MaybePromise<number>;
+     /**
+@@ -243,6 +247,32 @@ function genKey(method: string, params?: string): string {
+     return params === undefined ? method : `${method}\0${params}`;
+ }
+ 
++/**
++ * Encode a decoded protocol result for storage. JSON is the cache boundary:
++ * stores receive a portable document rather than references to SDK runtime
++ * objects, and parsing it later supplies the defensive copy needed on hits.
++ */
++export function serializeCacheDocument(value: unknown): string {
++    const document = JSON.stringify(value);
++    if (document === undefined) throw new TypeError('Cache values must be JSON-serializable protocol documents');
++    return document;
++}
++
++/**
++ * Decode a stored protocol document. Non-string values are accepted as a
++ * compatibility bridge for custom stores populated by older SDK releases;
++ * routing those values through JSON still gives them the same protocol-
++ * document semantics and mutation isolation as newly written entries.
++ */
++export function deserializeCacheDocument(value: unknown): unknown {
++    return JSON.parse(typeof value === 'string' ? value : JSON.stringify(value));
++}
++
++/** Decode an entry without exposing the store-owned metadata object. */
++function deserializeCacheEntry(entry: CacheEntry): CacheEntry {
++    return { ...entry, value: deserializeCacheDocument(entry.value) };
++}
++
+ /**
+  * Upper bound on the server-supplied `ttlMs` honoured by
+  * {@linkcode ClientResponseCache} (24h). A server cannot pin an entry
+@@ -384,11 +414,11 @@ export class ClientResponseCache {
+         const key = { method, params: params ?? '' };
+         const ownPartition = this._partitionFor('private');
+         const own = await this._store.get({ ...key, partition: ownPartition });
+-        if (own !== undefined) return own;
++        if (own !== undefined) return deserializeCacheEntry(own);
+         const sharedPartition = this._partitionFor('public');
+         if (sharedPartition === ownPartition) return undefined;
+         const shared = await this._store.get({ ...key, partition: sharedPartition });
+-        return shared?.scope === 'public' ? shared : undefined;
++        return shared?.scope === 'public' ? deserializeCacheEntry(shared) : undefined;
+     }
+ 
+     /**
+@@ -487,7 +517,7 @@ export class ClientResponseCache {
+      * overwriting the eviction with the stale aggregate would lose the
+      * invalidation.
+      *
+-     * The stored value is a `structuredClone` of `value`, so a caller
++     * The stored value is a serialized JSON protocol document, so a caller
+      * mutating the aggregate it was returned (e.g. `result.tools.sort(...)`)
+      * cannot reach the cache or the stamp-memoized indices derived from it. A
+      * custom store whose `set()` throws or rejects is routed to the
+@@ -529,7 +559,7 @@ export class ClientResponseCache {
+         try {
+             await this._store.set(
+                 { method, params, partition },
+-                { value: structuredClone(value), expiresAt: freshness?.expiresAt, scope: freshness?.scope }
++                { value: serializeCacheDocument(value), expiresAt: freshness?.expiresAt, scope: freshness?.scope }
+             );
+         } catch (error) {
+             this._reportError(error);
+diff --git a/docs/clients/caching.md b/docs/clients/caching.md
+index 7616255..d5c0456 100644
+--- a/docs/clients/caching.md
++++ b/docs/clients/caching.md
+@@ -64,7 +64,7 @@ const store = new InMemoryResponseCacheStore({ maxEntries: 2048 });
+ const client = new Client({ name: 'my-client', version: '1.0.0' }, { responseCacheStore: store });
+ ```
+ 
+-Every method on the `ResponseCacheStore` interface may return a promise, so a Redis-style store implements the same five methods. Entries are keyed by connected-server identity, so one store can back many clients: connections to different servers never collide.
++Every method on the `ResponseCacheStore` interface may return a promise, so a Redis-style store implements the same five methods. The client writes each entry's `value` as a serialized JSON protocol document, ready for a persistent backend; on a hit it decodes a fresh result object. Entries are keyed by connected-server identity, so one store can back many clients: connections to different servers never collide.
+ 
+ ## Partition the store per user
+ 
+diff --git a/packages/client/test/client/mcpParamMirroring.test.ts b/packages/client/test/client/mcpParamMirroring.test.ts
+index 8402aad..4e0e95f 100644
+--- a/packages/client/test/client/mcpParamMirroring.test.ts
++++ b/packages/client/test/client/mcpParamMirroring.test.ts
+@@ -17,7 +17,7 @@ import {
+ import { describe, expect, it, vi } from 'vitest';
+ 
+ import { Client } from '../../src/client/client';
+-import { InMemoryResponseCacheStore, type ResponseCacheStore } from '../../src/client/responseCache';
++import { deserializeCacheDocument, InMemoryResponseCacheStore, type ResponseCacheStore } from '../../src/client/responseCache';
+ import { StreamableHTTPClientTransport } from '../../src/client/streamableHttp';
+ 
+ const MODERN = '2026-07-28';
+@@ -132,9 +132,11 @@ describe('SEP-2243 Mcp-Param-* mirroring (modern era)', () => {
+         const { tools } = await client.listTools();
+         expect(tools.map(t => t.name)).toEqual(['route']);
+         expect(warn).toHaveBeenCalledWith(expect.stringContaining("excluding tool 'broken'"));
+-        expect((store.get({ method: 'tools/list', partition: PART })?.value as { tools: Tool[] }).tools.map(t => t.name)).toEqual([
+-            'route'
+-        ]);
++        expect(
++            (deserializeCacheDocument(store.get({ method: 'tools/list', partition: PART })?.value) as { tools: Tool[] }).tools.map(
++                t => t.name
++            )
++        ).toEqual(['route']);
+         // The explicit-cursor per-page path is filtered too (the spec's MUST
+         // has no carve-out for paginated reads).
+         const page = await client.listTools({ cursor: '0' });
+@@ -197,7 +199,8 @@ describe('SEP-2243 Mcp-Param-* mirroring (modern era)', () => {
+         expect(callHeaders).toEqual([{ 'Mcp-Param-Stale-Region': 'ap' }, { 'Mcp-Param-Region': 'ap' }]);
+         // The recovery refetch wrote a fresh cache entry (REGION_TOOL, with the declaration).
+         expect(
+-            (store.get({ method: 'tools/list', partition: PART })?.value as { tools: Tool[] }).tools[0]?.inputSchema.properties
++            (deserializeCacheDocument(store.get({ method: 'tools/list', partition: PART })?.value) as { tools: Tool[] }).tools[0]
++                ?.inputSchema.properties
+         ).toHaveProperty('region');
+     });
+ 
+@@ -240,7 +243,8 @@ describe('SEP-2243 Mcp-Param-* mirroring (modern era)', () => {
+         // The refetch's write overwrote the stale entry (the no-op delete
+         // never dropped it; the `'refresh'` write replaced it).
+         expect(
+-            (store.get({ method: 'tools/list', partition: PART })?.value as { tools: Tool[] }).tools[0]?.inputSchema.properties
++            (deserializeCacheDocument(store.get({ method: 'tools/list', partition: PART })?.value) as { tools: Tool[] }).tools[0]
++                ?.inputSchema.properties
+         ).toHaveProperty(['region', 'x-mcp-header'], 'Region');
+     });
+ 
+diff --git a/packages/client/test/client/responseCache.test.ts b/packages/client/test/client/responseCache.test.ts
+index 5006f38..33a8e3b 100644
+--- a/packages/client/test/client/responseCache.test.ts
++++ b/packages/client/test/client/responseCache.test.ts
+@@ -13,7 +13,12 @@ import { describe, expect, it } from 'vitest';
+ 
+ import { Client } from '../../src/client/client';
+ import type { CacheEntry, ResponseCacheStore } from '../../src/client/responseCache';
+-import { ClientResponseCache, InMemoryResponseCacheStore } from '../../src/client/responseCache';
++import {
++    ClientResponseCache,
++    deserializeCacheDocument,
++    InMemoryResponseCacheStore,
++    serializeCacheDocument
++} from '../../src/client/responseCache';
+ 
+ const MODERN = '2026-07-28';
+ 
+@@ -149,6 +154,17 @@ describe('InMemoryResponseCacheStore', () => {
+ });
+ 
+ describe('ClientResponseCache', () => {
++    it('cache document codec round-trips JSON values into detached protocol documents', () => {
++        const runtime = { tools: [{ ...TOOL_A }], omitted: undefined };
++        const document = serializeCacheDocument(runtime);
++
++        expect(typeof document).toBe('string');
++        const decoded = deserializeCacheDocument(document) as { tools: Tool[] };
++        expect(decoded).toEqual({ tools: [TOOL_A] });
++        expect(decoded).not.toBe(runtime);
++        expect(decoded.tools).not.toBe(runtime.tools);
++    });
++
+     it('write skips when the captured generation moved (list_changed-during-walk guard)', async () => {
+         const store = new InMemoryResponseCacheStore();
+         const cache = new ClientResponseCache(store, false);
+@@ -194,12 +210,11 @@ describe('ClientResponseCache', () => {
+         await cache.write('tools/list', value, cache.captureGeneration('tools/list'));
+         // Mutate the caller's reference (the same object _listAllPages returns).
+         value.tools.length = 0;
+-        // The cached entry is a structuredClone, so the store and the
+-        // stamp-memoized index are unaffected.
+-        expect((store.get({ method: 'tools/list', partition: PRE })?.value as { tools: Tool[] }).tools.map(t => t.name)).toEqual([
+-            'a',
+-            'b'
+-        ]);
++        // The cached entry is a serialized protocol document, so the store
++        // and the stamp-memoized index are unaffected.
++        const stored = store.get({ method: 'tools/list', partition: PRE })?.value;
++        expect(typeof stored).toBe('string');
++        expect((deserializeCacheDocument(stored) as { tools: Tool[] }).tools.map(t => t.name)).toEqual(['a', 'b']);
+         expect((await cache.toolDefinition('a'))?.name).toBe('a');
+         expect((await cache.toolDefinition('b'))?.name).toBe('b');
+     });
+@@ -426,7 +441,7 @@ describe('Client response-cache substrate', () => {
+         expect(listCount()).toBe(3);
+ 
+         const entry = store.get({ method: 'tools/list', partition: part() });
+-        expect((entry?.value as { tools: Tool[] }).tools.map(t => t.name)).toEqual(['a', 'b']);
++        expect((deserializeCacheDocument(entry?.value) as { tools: Tool[] }).tools.map(t => t.name)).toEqual(['a', 'b']);
+     });
+ 
+     it('the auto-aggregate path threads caller params (e.g. _meta trace context) into every page request', async () => {
+@@ -459,7 +474,7 @@ describe('Client response-cache substrate', () => {
+         // Common previously-harmless caller patterns.
+         result.tools.sort((x, y) => y.name.localeCompare(x.name));
+         result.tools.length = 0;
+-        // ClientResponseCache.write stored a structuredClone, so neither the
++        // ClientResponseCache.write stored a serialized document, so neither the
+         // backing entry nor the stamp-memoized name → Tool index moved.
+         expect((await toolDef(client, 'a'))?.name).toBe('a');
+         expect((await toolDef(client, 'b'))?.name).toBe('b');
+@@ -642,7 +657,7 @@ describe('Client honours cacheHints (SEP-2549)', () => {
+         const second = await client.listTools();
+         expect(second.tools.map(t => t.name)).toEqual(['a', 'b']);
+         expect(listCount()).toBe(1);
+-        // Clone-on-serve: hit is a fresh copy, not the stored object.
++        // Decode-on-serve: hit is a fresh copy, not the fetched object.
+         expect(second).not.toBe(first);
+ 
+         // After TTL → stale, refetch.
+diff --git a/examples/caching/README.md b/examples/caching/README.md
+index 840602a..279e4cd 100644
+--- a/examples/caching/README.md
++++ b/examples/caching/README.md
+@@ -30,10 +30,10 @@ import type { CacheEntry, CacheKey, CacheScope, ResponseCacheStore } from '@mode
+ 
+ class MyStore implements ResponseCacheStore {
+     async get(key: CacheKey): Promise<CacheEntry | undefined> {
+-        /* read {value, stamp, expiresAt, scope} from your backend */
++        /* read {value, stamp, expiresAt, scope}; client-written value is a JSON string */
+     }
+     async set(key: CacheKey, entry: { value: unknown; expiresAt?: number; scope?: CacheScope }): Promise<number> {
+-        /* write entry under key; return a monotonically-increasing stamp */
++        /* persist entry under key; return a monotonically-increasing stamp */
+     }
+     async delete(key: CacheKey): Promise<void> {
+         /* drop the single entry under key (no-op if absent) */
+
+
+SOLUTION Y VALIDATION
+[{"kind":"test","status":"PASS","timedOut":false},{"kind":"lint","status":"PASS","timedOut":false},{"kind":"typecheck","status":"PASS","timedOut":false}]
+
+SOLUTION Y PATCH
+diff --git a/packages/client/test/client/mcpParamMirroring.test.ts b/packages/client/test/client/mcpParamMirroring.test.ts
+index 8402aad..7a567d1 100644
+--- a/packages/client/test/client/mcpParamMirroring.test.ts
++++ b/packages/client/test/client/mcpParamMirroring.test.ts
+@@ -132,9 +132,9 @@ describe('SEP-2243 Mcp-Param-* mirroring (modern era)', () => {
+         const { tools } = await client.listTools();
+         expect(tools.map(t => t.name)).toEqual(['route']);
+         expect(warn).toHaveBeenCalledWith(expect.stringContaining("excluding tool 'broken'"));
+-        expect((store.get({ method: 'tools/list', partition: PART })?.value as { tools: Tool[] }).tools.map(t => t.name)).toEqual([
+-            'route'
+-        ]);
++        expect(
++            (JSON.parse(store.get({ method: 'tools/list', partition: PART })!.value) as { tools: Tool[] }).tools.map(t => t.name)
++        ).toEqual(['route']);
+         // The explicit-cursor per-page path is filtered too (the spec's MUST
+         // has no carve-out for paginated reads).
+         const page = await client.listTools({ cursor: '0' });
+@@ -178,14 +178,14 @@ describe('SEP-2243 Mcp-Param-* mirroring (modern era)', () => {
+         store.set(
+             { method: 'tools/list', partition: PART },
+             {
+-                value: {
++                value: JSON.stringify({
+                     tools: [
+                         {
+                             name: 'route',
+                             inputSchema: { type: 'object', properties: { region: { type: 'string', 'x-mcp-header': 'Stale-Region' } } }
+                         }
+                     ]
+-                }
++                })
+             }
+         );
+ 
+@@ -197,7 +197,7 @@ describe('SEP-2243 Mcp-Param-* mirroring (modern era)', () => {
+         expect(callHeaders).toEqual([{ 'Mcp-Param-Stale-Region': 'ap' }, { 'Mcp-Param-Region': 'ap' }]);
+         // The recovery refetch wrote a fresh cache entry (REGION_TOOL, with the declaration).
+         expect(
+-            (store.get({ method: 'tools/list', partition: PART })?.value as { tools: Tool[] }).tools[0]?.inputSchema.properties
++            (JSON.parse(store.get({ method: 'tools/list', partition: PART })!.value) as { tools: Tool[] }).tools[0]?.inputSchema.properties
+         ).toHaveProperty('region');
+     });
+ 
+@@ -217,14 +217,14 @@ describe('SEP-2243 Mcp-Param-* mirroring (modern era)', () => {
+         store.set(
+             { method: 'tools/list', partition: PART },
+             {
+-                value: {
++                value: JSON.stringify({
+                     tools: [
+                         {
+                             name: 'route',
+                             inputSchema: { type: 'object', properties: { region: { type: 'string', 'x-mcp-header': 'Stale-Region' } } }
+                         }
+                     ]
+-                },
++                }),
+                 expiresAt: Date.now() + 60_000,
+                 scope: 'public'
+             }
+@@ -240,7 +240,7 @@ describe('SEP-2243 Mcp-Param-* mirroring (modern era)', () => {
+         // The refetch's write overwrote the stale entry (the no-op delete
+         // never dropped it; the `'refresh'` write replaced it).
+         expect(
+-            (store.get({ method: 'tools/list', partition: PART })?.value as { tools: Tool[] }).tools[0]?.inputSchema.properties
++            (JSON.parse(store.get({ method: 'tools/list', partition: PART })!.value) as { tools: Tool[] }).tools[0]?.inputSchema.properties
+         ).toHaveProperty(['region', 'x-mcp-header'], 'Region');
+     });
+ 
+@@ -309,7 +309,7 @@ describe('SEP-2243 Mcp-Param-* mirroring (modern era)', () => {
+         store.set(
+             { method: 'tools/list', partition: PART },
+             {
+-                value: {
++                value: JSON.stringify({
+                     tools: [
+                         PAGE1,
+                         {
+@@ -317,7 +317,7 @@ describe('SEP-2243 Mcp-Param-* mirroring (modern era)', () => {
+                             inputSchema: { type: 'object', properties: { region: { type: 'string', 'x-mcp-header': 'Stale-Region' } } }
+                         }
+                     ]
+-                }
++                })
+             }
+         );
+ 
+@@ -344,7 +344,7 @@ describe('SEP-2243 Mcp-Param-* mirroring (modern era)', () => {
+         // and sends without headers — callTool never refetches on its own.
+         store.set(
+             { method: 'tools/list', partition: PART },
+-            { value: { tools: [{ name: 'route', inputSchema: { type: 'object', properties: {} } }] } }
++            { value: JSON.stringify({ tools: [{ name: 'route', inputSchema: { type: 'object', properties: {} } }] }) }
+         );
+         expect(store.get({ method: 'tools/list', partition: PART })).toBeDefined();
+         await serverTx.send({ jsonrpc: '2.0', method: 'notifications/tools/list_changed' } as JSONRPCMessage);
+diff --git a/docs/clients/calling.md b/docs/clients/calling.md
+index bb3864d..e5adc47 100644
+--- a/docs/clients/calling.md
++++ b/docs/clients/calling.md
+@@ -1,6 +1,7 @@
+ ---
+ shape: how-to
+ ---
++
+ # Call tools, read resources, get prompts
+ 
+ Every block on this page runs on a connected `Client` — [Connect to a server](./connect.md) shows the wiring — here paired in memory with an `orders` server that registers three tools, a resource, and a prompt.
+@@ -30,7 +31,7 @@ A failed tool call is still a result: check `isError` on it before trusting `con
+ 
+ ## Let the SDK walk the pages
+ 
+-That `listTools()` already walked every page: when a server splits its list, the SDK follows `nextCursor` page by page and returns one aggregated list with `nextCursor: undefined`. `listPrompts()`, `listResources()`, and `listResourceTemplates()` aggregate the same way.
++That `listTools()` already walked every page: when a server splits its list, the SDK follows `nextCursor` page by page and returns one aggregated list with no `nextCursor`. `listPrompts()`, `listResources()`, and `listResourceTemplates()` aggregate the same way.
+ 
+ Pass a `cursor` — a page's `nextCursor` your application held on to — and `listTools` returns exactly that page, raw.
+ 
+diff --git a/packages/client/src/client/responseCache.ts b/packages/client/src/client/responseCache.ts
+index 171d4cf..e98ac78 100644
+--- a/packages/client/src/client/responseCache.ts
++++ b/packages/client/src/client/responseCache.ts
+@@ -52,16 +52,18 @@ export interface CacheKey {
+ }
+ 
+ /**
+- * One cached response body. `value` is the verbatim decoded result; `stamp` is
+- * the store-generated monotonically increasing write counter — opaque to
+- * callers. Derived views (e.g. a `name → Tool` index) memoize against it and
+- * re-derive only when it changes. `expiresAt` (absolute ms epoch, `now +
+- * ttlMs`) and `scope` are the client-computed freshness metadata; the store
+- * MUST persist them and hand them back on `get` so the read path can decide
+- * freshness and gate the shared-partition fallback on `scope === 'public'`.
++ * One cached response body. `value` is the JSON-serialized result document —
++ * a store is a dumb string carrier and persists it verbatim; the cache owns
++ * both codec halves. `stamp` is the store-generated monotonically increasing
++ * write counter — opaque to callers. Derived views (e.g. a `name → Tool`
++ * index) memoize against it and re-derive only when it changes. `expiresAt`
++ * (absolute ms epoch, `now + ttlMs`) and `scope` are the client-computed
++ * freshness metadata; the store MUST persist them and hand them back on `get`
++ * so the read path can decide freshness and gate the shared-partition
++ * fallback on `scope === 'public'`.
+  */
+ export interface CacheEntry {
+-    readonly value: unknown;
++    readonly value: string;
+     readonly stamp: number;
+     readonly expiresAt?: number;
+     readonly scope?: CacheScope;
+@@ -96,7 +98,7 @@ export interface ResponseCacheStore {
+      * `scope` (the client-computed freshness metadata); the store MUST persist
+      * them and hand them back on `get`.
+      */
+-    set(key: CacheKey, entry: { value: unknown; expiresAt?: number; scope?: CacheScope }): MaybePromise<number>;
++    set(key: CacheKey, entry: { value: string; expiresAt?: number; scope?: CacheScope }): MaybePromise<number>;
+     /**
+      * Drop the single entry under `key` (no-op if absent). Called for both
+      * `notifications/resources/updated` (per-URI) and the `list_changed`
+@@ -175,7 +177,7 @@ export class InMemoryResponseCacheStore implements ResponseCacheStore {
+         return this._entries.get(keyOf(key));
+     }
+ 
+-    set(key: CacheKey, entry: { value: unknown; expiresAt?: number; scope?: CacheScope }): number {
++    set(key: CacheKey, entry: { value: string; expiresAt?: number; scope?: CacheScope }): number {
+         const k = keyOf(key);
+         const exempt = CAP_EXEMPT_METHODS.has(key.method);
+         const isNew = !this._entries.has(k);
+@@ -409,16 +411,24 @@ export class ClientResponseCache {
+      */
+     async evict(method: string): Promise<void> {
+         this._evictionGeneration.set(method, (this._evictionGeneration.get(method) ?? 0) + 1);
++        await this._deleteBoth(method, '');
++    }
++
++    /**
++     * Guarded two-partition delete of `{method, params}`. A custom store's
++     * failure on one partition is reported without skipping the other.
++     */
++    private async _deleteBoth(method: string, params: string): Promise<void> {
+         const ownPartition = this._partitionFor('private');
+         const sharedPartition = this._partitionFor('public');
+         try {
+-            await this._store.delete({ method, params: '', partition: ownPartition });
++            await this._store.delete({ method, params, partition: ownPartition });
+         } catch (error) {
+             this._reportError(error);
+         }
+         if (sharedPartition !== ownPartition) {
+             try {
+-                await this._store.delete({ method, params: '', partition: sharedPartition });
++                await this._store.delete({ method, params, partition: sharedPartition });
+             } catch (error) {
+                 this._reportError(error);
+             }
+@@ -449,20 +459,7 @@ export class ClientResponseCache {
+         // `resetForReconnect`).
+         const current = this._evictionGeneration.get(gk);
+         if (current !== undefined) this._evictionGeneration.set(gk, current + 1);
+-        const ownPartition = this._partitionFor('private');
+-        const sharedPartition = this._partitionFor('public');
+-        try {
+-            await this._store.delete({ method, params, partition: ownPartition });
+-        } catch (error) {
+-            this._reportError(error);
+-        }
+-        if (sharedPartition !== ownPartition) {
+-            try {
+-                await this._store.delete({ method, params, partition: sharedPartition });
+-            } catch (error) {
+-                this._reportError(error);
+-            }
+-        }
++        await this._deleteBoth(method, params);
+     }
+ 
+     /**
+@@ -487,13 +484,12 @@ export class ClientResponseCache {
+      * overwriting the eviction with the stale aggregate would lose the
+      * invalidation.
+      *
+-     * The stored value is a `structuredClone` of `value`, so a caller
+-     * mutating the aggregate it was returned (e.g. `result.tools.sort(...)`)
+-     * cannot reach the cache or the stamp-memoized indices derived from it. A
+-     * custom store whose `set()` throws or rejects is routed to the
+-     * `reportError` sink and the write resolves — cache bookkeeping never
+-     * costs the caller a result it already fetched (consistent with the
+-     * eviction path).
++     * The value is stored as its JSON-serialized document; serialization
++     * doubles as the mutation barrier, so a caller mutating the returned
++     * aggregate cannot reach the cache or its derived indices. A value without
++     * a JSON representation fails the write into the `reportError` sink. A
++     * custom store whose `set()` throws or rejects is routed to the same sink
++     * and the write resolves.
+      *
+      * `freshness` carries the client-computed `expiresAt` (absolute ms epoch,
+      * `now + ttlMs`) and the server-reported `cacheScope`. The storage
+@@ -529,7 +525,7 @@ export class ClientResponseCache {
+         try {
+             await this._store.set(
+                 { method, params, partition },
+-                { value: structuredClone(value), expiresAt: freshness?.expiresAt, scope: freshness?.scope }
++                { value: encodeCacheValue(value), expiresAt: freshness?.expiresAt, scope: freshness?.scope }
+             );
+         } catch (error) {
+             this._reportError(error);
+@@ -548,13 +544,25 @@ export class ClientResponseCache {
+     }
+ 
+     /**
+-     * Read the cached entry for `{method, params}` via the two-probe lookup
+-     * (own-partition then this server's shared partition, gated on
+-     * `scope === 'public'`). The caller owns the freshness check
+-     * (`entry.expiresAt > now()`); a missing `expiresAt` is never fresh.
++     * Serve the fresh cached result for `{method, params}`, or `undefined`.
++     * Freshness is checked before decoding. Every hit is freshly parsed, so
++     * the caller owns the returned value. Corrupt external-store documents
++     * are reported, deleted, and treated as misses.
+      */
+-    async read(method: string, params?: string): Promise<CacheEntry | undefined> {
+-        return this._probe(method, params);
++    async read(method: string, params?: string): Promise<{ value: unknown } | undefined> {
++        const entry = await this._probe(method, params);
++        if (entry?.expiresAt === undefined || !(entry.expiresAt > this.now())) return undefined;
++        try {
++            const parsed: unknown = JSON.parse(entry.value);
++            if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
++                throw new TypeError('cached document is not an object');
++            }
++            return { value: parsed };
++        } catch (error) {
++            this._reportError(error);
++            await this._deleteBoth(method, params ?? '');
++            return undefined;
++        }
+     }
+ 
+     /**
+@@ -592,8 +600,9 @@ export class ClientResponseCache {
+             return undefined;
+         }
+         if (this._toolIndex?.stamp !== entry.stamp) {
++            const list = this._decodeListTools(entry);
+             const byName = new Map<string, Tool>();
+-            for (const tool of (entry.value as ListToolsResult).tools) byName.set(tool.name, tool);
++            if (list !== undefined) for (const tool of list.tools) byName.set(tool.name, tool);
+             this._toolIndex = { stamp: entry.stamp, byName };
+         }
+         return this._toolIndex.byName.get(name);
+@@ -628,8 +637,9 @@ export class ClientResponseCache {
+             return undefined;
+         }
+         if (this._toolOutputValidatorIndex?.stamp !== entry.stamp) {
++            const list = this._decodeListTools(entry) ?? { tools: [] };
+             const byName = new Map<string, unknown>();
+-            for (const tool of (entry.value as ListToolsResult).tools) {
++            for (const tool of list.tools) {
+                 const compiled = compile(tool);
+                 if (compiled !== undefined) byName.set(tool.name, compiled);
+             }
+@@ -637,4 +647,34 @@ export class ClientResponseCache {
+         }
+         return this._toolOutputValidatorIndex.byName.get(name) as V | undefined;
+     }
++
++    /** Decode and minimally validate the document used by derived tool views. */
++    private _decodeListTools(entry: CacheEntry): ListToolsResult | undefined {
++        try {
++            const parsed = JSON.parse(entry.value) as ListToolsResult | null;
++            if (!Array.isArray(parsed?.tools) || !parsed.tools.every(tool => tool !== null && typeof tool === 'object')) {
++                throw new TypeError('cached tools/list document has a malformed tools array');
++            }
++            return parsed;
++        } catch (error) {
++            this._reportError(error);
++            return undefined;
++        }
++    }
++}
++
++/**
++ * Serialize a result document for storage. JSON.stringify throws for cycles
++ * and BigInt but returns `undefined` for some top-level values; normalize both
++ * cases to a descriptive TypeError.
++ */
++function encodeCacheValue(value: unknown): string {
++    let json: string | undefined;
++    try {
++        json = JSON.stringify(value);
++    } catch (error) {
++        throw new TypeError(`cache value is not JSON-serializable: ${error instanceof Error ? error.message : String(error)}`);
++    }
++    if (typeof json !== 'string') throw new TypeError('cache value is not JSON-serializable: it has no JSON representation');
++    return json;
+ }
+diff --git a/examples/caching/README.md b/examples/caching/README.md
+index 840602a..41fe3f3 100644
+--- a/examples/caching/README.md
++++ b/examples/caching/README.md
+@@ -32,8 +32,9 @@ class MyStore implements ResponseCacheStore {
+     async get(key: CacheKey): Promise<CacheEntry | undefined> {
+         /* read {value, stamp, expiresAt, scope} from your backend */
+     }
+-    async set(key: CacheKey, entry: { value: unknown; expiresAt?: number; scope?: CacheScope }): Promise<number> {
+-        /* write entry under key; return a monotonically-increasing stamp */
++    async set(key: CacheKey, entry: { value: string; expiresAt?: number; scope?: CacheScope }): Promise<number> {
++        /* value is the JSON-serialized result document; persist it verbatim,
++           then return a monotonically-increasing stamp */
+     }
+     async delete(key: CacheKey): Promise<void> {
+         /* drop the single entry under key (no-op if absent) */
+diff --git a/packages/client/test/client/responseCache.test.ts b/packages/client/test/client/responseCache.test.ts
+index 5006f38..240eef6 100644
+--- a/packages/client/test/client/responseCache.test.ts
++++ b/packages/client/test/client/responseCache.test.ts
+@@ -33,25 +33,25 @@ const PRE = JSON.stringify(['', '']);
+ describe('InMemoryResponseCacheStore', () => {
+     it('get/set/evict/clear round-trip; evict is method-scoped; set returns the store-generated stamp', () => {
+         const store = new InMemoryResponseCacheStore();
+-        const s1 = store.set({ method: 'tools/list' }, { value: 1 });
+-        const s2 = store.set({ method: 'prompts/list' }, { value: 2 });
+-        const s3 = store.set({ method: 'resources/read', params: 'file:///a' }, { value: 3, expiresAt: 123, scope: 'private' });
++        const s1 = store.set({ method: 'tools/list' }, { value: '1' });
++        const s2 = store.set({ method: 'prompts/list' }, { value: '2' });
++        const s3 = store.set({ method: 'resources/read', params: 'file:///a' }, { value: '3', expiresAt: 123, scope: 'private' });
+         // Store owns the stamp counter: monotonic, opaque to callers, surfaced on the entry.
+         expect(s2).toBeGreaterThan(s1);
+         expect(s3).toBeGreaterThan(s2);
+-        expect(store.get({ method: 'tools/list' })).toEqual({ value: 1, stamp: s1 });
++        expect(store.get({ method: 'tools/list' })).toEqual({ value: '1', stamp: s1 });
+         // Store persists caller-supplied freshness metadata.
+         expect(store.get({ method: 'resources/read', params: 'file:///a' })).toEqual({
+-            value: 3,
++            value: '3',
+             stamp: s3,
+             expiresAt: 123,
+             scope: 'private'
+         });
+-        expect(store.get({ method: 'tools/list', params: '', partition: '' })?.value).toBe(1);
++        expect(store.get({ method: 'tools/list', params: '', partition: '' })?.value).toBe('1');
+         store.evict('tools/list');
+         expect(store.get({ method: 'tools/list' })).toBeUndefined();
+-        expect(store.get({ method: 'prompts/list' })?.value).toBe(2);
+-        expect(store.get({ method: 'resources/read', params: 'file:///a' })?.value).toBe(3);
++        expect(store.get({ method: 'prompts/list' })?.value).toBe('2');
++        expect(store.get({ method: 'resources/read', params: 'file:///a' })?.value).toBe('3');
+         store.clear();
+         expect(store.get({ method: 'prompts/list' })).toBeUndefined();
+     });
+@@ -75,10 +75,10 @@ describe('InMemoryResponseCacheStore', () => {
+         // A NUL in `partition` cannot smuggle into `params` (and vice versa) —
+         // the `[partition, params]` JSON-array encoding escapes every control
+         // and quote character.
+-        store.set({ method: 'resources/read', partition: 'a\0b', params: 'c' }, { value: 1 });
+-        store.set({ method: 'resources/read', partition: 'a', params: 'b\0c' }, { value: 2 });
+-        expect(store.get({ method: 'resources/read', partition: 'a\0b', params: 'c' })?.value).toBe(1);
+-        expect(store.get({ method: 'resources/read', partition: 'a', params: 'b\0c' })?.value).toBe(2);
++        store.set({ method: 'resources/read', partition: 'a\0b', params: 'c' }, { value: '1' });
++        store.set({ method: 'resources/read', partition: 'a', params: 'b\0c' }, { value: '2' });
++        expect(store.get({ method: 'resources/read', partition: 'a\0b', params: 'c' })?.value).toBe('1');
++        expect(store.get({ method: 'resources/read', partition: 'a', params: 'b\0c' })?.value).toBe('2');
+         // Same for the partition's own JSON-shaped content: the outer
+         // JSON.stringify escapes the inner quotes.
+         store.set({ method: 'tools/list', partition: '["x",""]' }, { value: 'real' });
+@@ -104,7 +104,7 @@ describe('InMemoryResponseCacheStore', () => {
+ 
+         // 0 disables the bound.
+         const unbounded = new InMemoryResponseCacheStore({ maxEntries: 0 });
+-        for (let i = 0; i < 1000; i++) unbounded.set({ method: 'resources/read', params: String(i) }, { value: i });
++        for (let i = 0; i < 1000; i++) unbounded.set({ method: 'resources/read', params: String(i) }, { value: String(i) });
+         expect(unbounded.size).toBe(1000);
+     });
+ 
+@@ -119,7 +119,7 @@ describe('InMemoryResponseCacheStore', () => {
+         // Five exempt entries already exceed maxEntries=3; a resources/read
+         // write does NOT evict any of them — the cap counts only non-exempt
+         // keys.
+-        for (let i = 0; i < 5; i++) store.set({ method: 'resources/read', params: String(i) }, { value: i });
++        for (let i = 0; i < 5; i++) store.set({ method: 'resources/read', params: String(i) }, { value: String(i) });
+         expect(store.get({ method: 'tools/list' })?.value).toBe('T');
+         expect(store.get({ method: 'prompts/list' })?.value).toBe('P');
+         expect(store.get({ method: 'resources/list' })?.value).toBe('R');
+@@ -128,21 +128,21 @@ describe('InMemoryResponseCacheStore', () => {
+         // Only 3 resources/read entries survive (oldest two evicted).
+         expect(store.get({ method: 'resources/read', params: '0' })).toBeUndefined();
+         expect(store.get({ method: 'resources/read', params: '1' })).toBeUndefined();
+-        expect(store.get({ method: 'resources/read', params: '2' })?.value).toBe(2);
+-        expect(store.get({ method: 'resources/read', params: '4' })?.value).toBe(4);
++        expect(store.get({ method: 'resources/read', params: '2' })?.value).toBe('2');
++        expect(store.get({ method: 'resources/read', params: '4' })?.value).toBe('4');
+         expect(store.size).toBe(8);
+         // An exempt-method write at capacity never evicts a resources/read entry.
+         store.set({ method: 'tools/list', partition: 'p2' }, { value: 'T2' });
+-        expect(store.get({ method: 'resources/read', params: '2' })?.value).toBe(2);
++        expect(store.get({ method: 'resources/read', params: '2' })?.value).toBe('2');
+     });
+ 
+     it('delete(key) drops the single entry; no-op when absent', () => {
+         const store = new InMemoryResponseCacheStore();
+-        store.set({ method: 'resources/read', params: 'a', partition: 'p' }, { value: 1 });
+-        store.set({ method: 'resources/read', params: 'b', partition: 'p' }, { value: 2 });
++        store.set({ method: 'resources/read', params: 'a', partition: 'p' }, { value: '1' });
++        store.set({ method: 'resources/read', params: 'b', partition: 'p' }, { value: '2' });
+         store.delete({ method: 'resources/read', params: 'a', partition: 'p' });
+         expect(store.get({ method: 'resources/read', params: 'a', partition: 'p' })).toBeUndefined();
+-        expect(store.get({ method: 'resources/read', params: 'b', partition: 'p' })?.value).toBe(2);
++        expect(store.get({ method: 'resources/read', params: 'b', partition: 'p' })?.value).toBe('2');
+         // Absent key: no-op.
+         store.delete({ method: 'resources/read', params: 'a', partition: 'p' });
+     });
+@@ -194,12 +194,11 @@ describe('ClientResponseCache', () => {
+         await cache.write('tools/list', value, cache.captureGeneration('tools/list'));
+         // Mutate the caller's reference (the same object _listAllPages returns).
+         value.tools.length = 0;
+-        // The cached entry is a structuredClone, so the store and the
++        // The cache serialized the value on write, so the store and the
+         // stamp-memoized index are unaffected.
+-        expect((store.get({ method: 'tools/list', partition: PRE })?.value as { tools: Tool[] }).tools.map(t => t.name)).toEqual([
+-            'a',
+-            'b'
+-        ]);
++        expect(
++            (JSON.parse(store.get({ method: 'tools/list', partition: PRE })!.value) as { tools: Tool[] }).tools.map(t => t.name)
++        ).toEqual(['a', 'b']);
+         expect((await cache.toolDefinition('a'))?.name).toBe('a');
+         expect((await cache.toolDefinition('b'))?.name).toBe('b');
+     });
+@@ -212,17 +211,29 @@ describe('ClientResponseCache', () => {
+         // keyed per URI).
+         const gen = cache.captureGeneration('resources/read', 'res://a');
+         await cache.evictKey('resources/read', 'res://a');
+-        await cache.write('resources/read', { contents: [] }, gen, { expiresAt: 1e9, scope: 'private', params: 'res://a' });
++        await cache.write('resources/read', { contents: [] }, gen, {
++            expiresAt: Date.now() + 60_000,
++            scope: 'private',
++            params: 'res://a'
++        });
+         expect(store.get({ method: 'resources/read', params: 'res://a', partition: PRE })).toBeUndefined();
+         // A sibling URI's generation is independent: evictKey('a') does not
+         // suppress a write for 'b'.
+         const genB = cache.captureGeneration('resources/read', 'res://b');
+         await cache.evictKey('resources/read', 'res://a');
+-        await cache.write('resources/read', { contents: [] }, genB, { expiresAt: 1e9, scope: 'private', params: 'res://b' });
++        await cache.write('resources/read', { contents: [] }, genB, {
++            expiresAt: Date.now() + 60_000,
++            scope: 'private',
++            params: 'res://b'
++        });
+         expect(store.get({ method: 'resources/read', params: 'res://b', partition: PRE })).toBeDefined();
+         // A fresh capture after the evictKey writes through.
+         const gen2 = cache.captureGeneration('resources/read', 'res://a');
+-        await cache.write('resources/read', { contents: [] }, gen2, { expiresAt: 1e9, scope: 'private', params: 'res://a' });
++        await cache.write('resources/read', { contents: [] }, gen2, {
++            expiresAt: Date.now() + 60_000,
++            scope: 'private',
++            params: 'res://a'
++        });
+         expect(store.get({ method: 'resources/read', params: 'res://a', partition: PRE })).toBeDefined();
+     });
+ 
+@@ -264,7 +275,7 @@ describe('ClientResponseCache', () => {
+         };
+         const cache = new ClientResponseCache(store, true);
+         await cache.write('tools/list', { tools: [TOOL_A] }, cache.captureGeneration('tools/list'), {
+-            expiresAt: 1e9,
++            expiresAt: Date.now() + 60_000,
+             scope: 'private'
+         });
+         // The read path finds the entry the write path stored.
+@@ -292,7 +303,7 @@ describe('ClientResponseCache', () => {
+         const cache = new ClientResponseCache(store, true);
+         expect(await cache.toolDefinition('a')).toBeUndefined();
+ 
+-        store.set({ method: 'tools/list', partition: PRE }, { value: { tools: [TOOL_A, TOOL_B] } });
++        store.set({ method: 'tools/list', partition: PRE }, { value: JSON.stringify({ tools: [TOOL_A, TOOL_B] }) });
+         const hit = await cache.toolDefinition('a');
+         expect(hit?.name).toBe('a');
+         // Same backing entry → identical reference (memoized index, not re-derived).
+@@ -300,7 +311,7 @@ describe('ClientResponseCache', () => {
+ 
+         // A fresh write bumps the store stamp → the index re-derives (the new
+         // entry's tool instance is what comes back, not the memoized one).
+-        store.set({ method: 'tools/list', partition: PRE }, { value: { tools: [{ ...TOOL_A }, { ...TOOL_B }] } });
++        store.set({ method: 'tools/list', partition: PRE }, { value: JSON.stringify({ tools: [{ ...TOOL_A }, { ...TOOL_B }] }) });
+         const hit2 = await cache.toolDefinition('a');
+         expect(hit2?.name).toBe('a');
+         expect(hit2).not.toBe(hit);
+@@ -426,7 +437,7 @@ describe('Client response-cache substrate', () => {
+         expect(listCount()).toBe(3);
+ 
+         const entry = store.get({ method: 'tools/list', partition: part() });
+-        expect((entry?.value as { tools: Tool[] }).tools.map(t => t.name)).toEqual(['a', 'b']);
++        expect((JSON.parse(entry!.value) as { tools: Tool[] }).tools.map(t => t.name)).toEqual(['a', 'b']);
+     });
+ 
+     it('the auto-aggregate path threads caller params (e.g. _meta trace context) into every page request', async () => {
+@@ -459,8 +470,8 @@ describe('Client response-cache substrate', () => {
+         // Common previously-harmless caller patterns.
+         result.tools.sort((x, y) => y.name.localeCompare(x.name));
+         result.tools.length = 0;
+-        // ClientResponseCache.write stored a structuredClone, so neither the
+-        // backing entry nor the stamp-memoized name → Tool index moved.
++        // The cache serialized the value on write, so neither the backing
++        // entry nor the stamp-memoized name → Tool index moved.
+         expect((await toolDef(client, 'a'))?.name).toBe('a');
+         expect((await toolDef(client, 'b'))?.name).toBe('b');
+     });
+@@ -642,7 +653,7 @@ describe('Client honours cacheHints (SEP-2549)', () => {
+         const second = await client.listTools();
+         expect(second.tools.map(t => t.name)).toEqual(['a', 'b']);
+         expect(listCount()).toBe(1);
+-        // Clone-on-serve: hit is a fresh copy, not the stored object.
++        // Parse-on-serve: hit is a fresh copy, not the stored object.
+         expect(second).not.toBe(first);
+ 
+         // After TTL → stale, refetch.
+diff --git a/docs/migration/upgrade-to-v2.md b/docs/migration/upgrade-to-v2.md
+index 5b812d1..3041bd7 100644
+--- a/docs/migration/upgrade-to-v2.md
++++ b/docs/migration/upgrade-to-v2.md
+@@ -1588,7 +1588,7 @@ rewrite required unless noted.
+   instead of sending the request. Set `enforceStrictCapabilities: true` in `ClientOptions`
+   to restore the v1 throw.
+ - Called **without a `cursor`**, the same methods now **auto-aggregate every page** and
+-  return `nextCursor: undefined`. Passing `{ cursor }` still fetches one page. Manual
++  return an aggregate with no `nextCursor`. Passing `{ cursor }` still fetches one page. Manual
+   pagination loops keep working (the first iteration returns everything); replace them
+   with the bare no-arg call. The walk is capped at `ClientOptions.listMaxPages` (default
+   64); overrun throws `SdkError(ListPaginationExceeded)`. There is no way to fetch only
+@@ -1606,6 +1606,9 @@ rewrite required unless noted.
+   trip. Per-call override: `{ cacheMode: 'refresh' | 'bypass' }`. New `ClientOptions`:
+   `cachePartition`, `defaultCacheTtlMs`. `ResponseCacheStore` gained `delete(key)`;
+   `InMemoryResponseCacheStore` is now bounded (`{ maxEntries }`, default 512).
++  `CacheEntry.value` (and the `set()` entry value) is the JSON-serialized result
++  document (`string`, not `unknown`): persist and return it verbatim, `JSON.parse`
++  it to inspect.
+ 
+ #### Server (Streamable HTTP transport)
+ 
+diff --git a/packages/client/src/client/client.ts b/packages/client/src/client/client.ts
+index 5028e93..4a254b5 100644
+--- a/packages/client/src/client/client.ts
++++ b/packages/client/src/client/client.ts
+@@ -1475,7 +1475,7 @@ export class Client extends Protocol<ClientContext> {
+      * Lists available prompts.
+      *
+      * Called without a `cursor` (the common case), this walks every page and
+-     * returns the complete aggregated list with `nextCursor: undefined`; the
++     * returns the complete aggregated list with no `nextCursor`; the
+      * aggregate is also written to the {@linkcode ResponseCacheStore}. Pass an
+      * explicit `{ cursor }` to fetch a single page and walk pagination
+      * yourself — the per-page path returns the server's raw page (with
+@@ -1515,7 +1515,7 @@ export class Client extends Protocol<ClientContext> {
+      * Lists available resources.
+      *
+      * Called without a `cursor` (the common case), this walks every page and
+-     * returns the complete aggregated list with `nextCursor: undefined`; the
++     * returns the complete aggregated list with no `nextCursor`; the
+      * aggregate is also written to the {@linkcode ResponseCacheStore}. Pass an
+      * explicit `{ cursor }` to fetch a single page and walk pagination
+      * yourself — the per-page path returns the server's raw page (with
+@@ -1557,7 +1557,7 @@ export class Client extends Protocol<ClientContext> {
+      * Lists available resource URI templates for dynamic resources.
+      *
+      * Called without a `cursor`, this walks every page and returns the
+-     * complete aggregated list with `nextCursor: undefined`; the aggregate is
++     * complete aggregated list with no `nextCursor`; the aggregate is
+      * also written to the {@linkcode ResponseCacheStore}. Pass an explicit
+      * `{ cursor }` to fetch a single page — see
+      * {@linkcode listResources | listResources()} for the per-page contract.
+@@ -1642,7 +1642,10 @@ export class Client extends Protocol<ClientContext> {
+             cursor = page.nextCursor;
+             pages++;
+         }
+-        acc.nextCursor = undefined;
++        // Delete rather than assign `undefined`: JSON serialization drops
++        // explicit undefined properties, so absence keeps wire and cache-hit
++        // results observably identical.
++        delete acc.nextCursor;
+         finalize?.(acc);
+         if (bypass) return acc;
+         // The aggregate is ALWAYS written: even when the resolved TTL is ≤0
+@@ -1681,12 +1684,12 @@ export class Client extends Protocol<ClientContext> {
+ 
+     /**
+      * The cache-serving front of every cacheable verb (mcp.d's `cachedFetch`
+-     * read half): under `cacheMode: 'use'` (the default), a held entry whose
+-     * `expiresAt` is in the future is returned as a `structuredClone` and the
+-     * round trip is skipped. `'refresh'` and `'bypass'` always fetch (the
+-     * caller decides whether to write). A custom store whose `get()` rejects
+-     * is routed to `onerror` and treated as a miss — cache bookkeeping never
+-     * blocks a request from reaching the wire.
++     * read half): under `cacheMode: 'use'` (the default), a fresh held entry
++     * is served and the round trip is skipped. `'refresh'` and `'bypass'`
++     * always fetch (the caller decides whether to write). Freshness and
++     * decoding live in {@linkcode ClientResponseCache.read}; every hit is
++     * freshly parsed, so the caller owns it outright. A custom store whose
++     * `get()` rejects is routed to `onerror` and treated as a miss.
+      */
+     private async _serveFromCache<R>(
+         method: string,
+@@ -1694,8 +1697,8 @@ export class Client extends Protocol<ClientContext> {
+         options: CacheableRequestOptions | undefined
+     ): Promise<R | undefined> {
+         if (options?.cacheMode === 'bypass' || options?.cacheMode === 'refresh') return undefined;
+-        const entry = await this._cache.read(method, params).catch(error => void this._reportStoreError(error));
+-        if (entry?.expiresAt !== undefined && entry.expiresAt > this._cache.now()) {
++        const hit = await this._cache.read(method, params).catch(error => void this._reportStoreError(error));
++        if (hit !== undefined) {
+             // A pre-aborted caller signal must reject the same way it would on
+             // the wire path (`Protocol.request()` wraps an already-aborted
+             // signal as `SdkError(RequestTimeout, reason)`); without this guard
+@@ -1705,11 +1708,7 @@ export class Client extends Protocol<ClientContext> {
+                 const reason = options.signal.reason;
+                 throw reason instanceof SdkError ? reason : new SdkError(SdkErrorCode.RequestTimeout, String(reason));
+             }
+-            // Clone on the way out so a caller mutating the returned aggregate
+-            // (e.g. `result.tools.sort(...)`) cannot reach the cache or the
+-            // stamp-memoized indices derived from it — the same invariant
+-            // `_cache.write` upholds on the way in.
+-            return structuredClone(entry.value) as R;
++            return hit.value as R;
+         }
+         return undefined;
+     }
+@@ -2369,7 +2368,7 @@ export class Client extends Protocol<ClientContext> {
+      * Lists available tools.
+      *
+      * Called without a `cursor` (the common case), this walks every page and
+-     * returns the complete aggregated list with `nextCursor: undefined`; the
++     * returns the complete aggregated list with no `nextCursor`; the
+      * aggregate is also written to the {@linkcode ResponseCacheStore} (the
+      * source for {@linkcode callTool | callTool()}'s output-schema validation
+      * and SEP-2243 `Mcp-Param-*` header mirroring). Pass an explicit
+diff --git a/docs/clients/caching.md b/docs/clients/caching.md
+index 7616255..8d58162 100644
+--- a/docs/clients/caching.md
++++ b/docs/clients/caching.md
+@@ -1,6 +1,7 @@
+ ---
+ shape: how-to
+ ---
++
+ # Cache responses
+ 
+ Caching is one feature with two halves: the server marks a result with a freshness hint, and the client's **response cache** serves it locally while it stays fresh.
+@@ -64,7 +65,7 @@ const store = new InMemoryResponseCacheStore({ maxEntries: 2048 });
+ const client = new Client({ name: 'my-client', version: '1.0.0' }, { responseCacheStore: store });
+ ```
+ 
+-Every method on the `ResponseCacheStore` interface may return a promise, so a Redis-style store implements the same five methods. Entries are keyed by connected-server identity, so one store can back many clients: connections to different servers never collide.
++Every method on the `ResponseCacheStore` interface may return a promise, so a Redis-style store implements the same five methods. `CacheEntry.value` is the JSON-serialized result document — a persistent store persists the string verbatim, no extra serialization step, and behaves identically to the in-memory default. Entries are keyed by connected-server identity, so one store can back many clients: connections to different servers never collide.
+ 
+ ## Partition the store per user
+ 
+

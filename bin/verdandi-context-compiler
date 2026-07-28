@@ -1,0 +1,148 @@
+#!/usr/bin/env node
+/**
+ * Verðandi Context Compiler — Universal MCP Server Entry Point
+ *
+ * Usage:
+ *   npx verdandi-context-compiler                    # Start stdio MCP server
+ *   npx verdandi-context-compiler setup <agent>      # Register with an agent
+ *   npx verdandi-context-compiler status             # Check which agents are configured
+ */
+import { spawn } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const SERVER_PATH = path.resolve(__dirname, "../dist/src/mcp_server.js");
+
+const AGENTS = {
+  codex: {
+    name: "Codex CLI",
+    configFiles: ["~/.codex/config.toml", ".codex/config.toml"],
+    addCommand: (serverPath) =>
+      `codex mcp add verdandi-context-compiler -- node ${JSON.stringify(serverPath)}`,
+  },
+  claude: {
+    name: "Claude Code",
+    configFiles: ["~/.claude.json"],
+    addCommand: (serverPath) =>
+      `claude mcp add verdandi-context-compiler -- node ${JSON.stringify(serverPath)}`,
+  },
+  opencode: {
+    name: "OpenCode",
+    configFiles: ["~/.config/opencode/opencode.jsonc"],
+    addCommand: (serverPath) =>
+      `Add to opencode.jsonc mcp section:\n  "verdandi-context-compiler": {\n    "type": "stdio",\n    "command": "node",\n    "args": ["${serverPath}"],\n    "enabled": true\n  }`,
+  },
+  natureco: {
+    name: "NatureCo CLI",
+    configFiles: ["~/.config/natureco/config.json"],
+    addCommand: (serverPath) =>
+      `natureco mcp add verdandi-context-compiler node ${JSON.stringify(serverPath)}`,
+  },
+  hermes: {
+    name: "Hermes",
+    configFiles: ["~/.hermes/config.json"],
+    addCommand: (serverPath) =>
+      `hermes mcp add verdandi-context-compiler --command node --args ${JSON.stringify(serverPath)}`,
+  },
+  openclaw: {
+    name: "OpenClaw",
+    configFiles: ["~/.openclaw/openclaw.json"],
+    addCommand: (serverPath) =>
+      `Add to ~/.openclaw/openclaw.json tools section:\n  "verdandi-context-compiler": {\n    "command": "node",\n    "args": ["${serverPath}"]\n  }`,
+  },
+  kimi: {
+    name: "Kimi CLI",
+    configFiles: ["~/.kimi-code/config.toml"],
+    addCommand: (serverPath) =>
+      `Add to ~/.kimi-code/config.toml:\n[mcp.verdandi-context-compiler]\ncommand = "node"\nargs = ["${serverPath}"]`,
+  },
+  glm: {
+    name: "GLM CLI",
+    configFiles: [],
+    addCommand: (serverPath) =>
+      `If GLM supports MCP: glm mcp add verdandi-context-compiler -- node ${serverPath}`,
+  },
+  antigravity: {
+    name: "Antigravity CLI",
+    configFiles: ["~/.gemini/antigravity-cli/mcp-config.json"],
+    addCommand: (serverPath) =>
+      `antigravity mcp add verdandi-context-compiler node ${JSON.stringify(serverPath)}`,
+  },
+};
+
+const args = process.argv.slice(2);
+
+if (args[0] === "setup") {
+  const agent = args[1];
+  if (!agent || !AGENTS[agent]) {
+    console.log("Usage: verdandi-context-compiler setup <agent>");
+    console.log(`Available agents: ${Object.keys(AGENTS).join(", ")}`);
+    process.exit(1);
+  }
+  const info = AGENTS[agent];
+  console.log(`\n  Verðandi Context Compiler — ${info.name} Setup\n`);
+  console.log(`  Server path: ${SERVER_PATH}`);
+  console.log(`  Command:\n  ${info.addCommand(SERVER_PATH)}\n`);
+  process.exit(0);
+}
+
+if (args[0] === "status") {
+  console.log("\n  Verðandi Context Compiler — Agent Status\n");
+  for (const [key, info] of Object.entries(AGENTS)) {
+    const configured = info.configFiles.some((file) => {
+      const expanded = file.startsWith("~/") ? path.join(homedir(), file.slice(2)) : path.resolve(file);
+      if (!existsSync(expanded)) return false;
+      try {
+        const content = readFileSync(expanded, "utf8");
+        return content.includes("verdandi-context-compiler") &&
+          (content.includes(SERVER_PATH) || content.includes("mcp_server.js"));
+      } catch {
+        return false;
+      }
+    });
+    console.log(`  ${configured ? "✅" : "⬜"} ${info.name.padEnd(16)} ${key}`);
+  }
+  console.log();
+  process.exit(0);
+}
+
+if (args[0] === "--help" || args[0] === "-h") {
+  console.log(`
+  Verðandi Context Compiler v0.2.0
+
+  Usage:
+    verdandi-context-compiler                    Start stdio MCP server
+    verdandi-context-compiler setup <agent>      Show setup instructions for an agent
+    verdandi-context-compiler status             Check which agents are configured
+
+  Agents: codex, claude, opencode, natureco, hermes, openclaw, kimi, glm, antigravity
+  `);
+  process.exit(0);
+}
+
+// Default: start the MCP server
+if (!existsSync(SERVER_PATH)) {
+  console.error("Server not built. Run: npm run build");
+  process.exit(1);
+}
+
+const server = spawn(process.execPath, [SERVER_PATH], {
+  stdio: "inherit",
+});
+
+server.once("error", error => {
+  console.error(`Failed to start MCP server: ${error.message}`);
+  process.exitCode = 1;
+});
+server.once("close", (code, signal) => {
+  if (signal) process.exitCode = 1;
+  else process.exitCode = code ?? 1;
+});
+for (const signal of ["SIGINT", "SIGTERM"]) {
+  process.once(signal, () => {
+    if (server.exitCode === null && server.signalCode === null) server.kill(signal);
+  });
+}

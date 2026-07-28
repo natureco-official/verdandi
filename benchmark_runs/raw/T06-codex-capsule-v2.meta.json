@@ -1,0 +1,23 @@
+{
+  "taskId": "T06",
+  "agent": "codex-capsule",
+  "promptPath": "benchmark_runs/prompts/T06.txt",
+  "promptSha256": "6aab374aa6825786616ec9617831b45606f86cdb4aa74c0ba9c789a98c87ca2f",
+  "worktree": "/private/tmp/capsule-quality-v2/T06-codex-capsule",
+  "startCommit": "7e697354de95111ca2c70a12ac9f5d3ec96b56c3",
+  "model": "gpt-5.6-sol",
+  "effort": "medium",
+  "startedAt": "2026-07-28T18:41:07.663Z",
+  "durationMs": 240038,
+  "exitCode": 0,
+  "timedOut": false,
+  "outputLimitExceeded": false,
+  "usage": {
+    "input_tokens": 839589,
+    "cached_input_tokens": 768768,
+    "cache_write_input_tokens": 0,
+    "output_tokens": 7691,
+    "reasoning_output_tokens": 2030
+  },
+  "parseError": null
+}

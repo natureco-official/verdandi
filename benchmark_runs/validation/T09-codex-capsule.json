@@ -1,0 +1,62 @@
+{
+  "taskId": "T09",
+  "agent": "codex-capsule",
+  "worktree": "/private/tmp/capsule-baseline-worktrees/T09-codex-capsule",
+  "completedAt": "2026-07-28T15:19:37.047Z",
+  "results": [
+    {
+      "kind": "test",
+      "command": [
+        "pnpm",
+        "--dir",
+        "packages/client",
+        "test",
+        "test/client/responseCacheCodec.test.ts",
+        "test/client/mcpParamMirroring.test.ts",
+        "test/client/responseCache.test.ts"
+      ],
+      "cwd": "/private/tmp/capsule-baseline-worktrees/T09-codex-capsule",
+      "startedAt": "2026-07-28T15:19:29.631Z",
+      "durationMs": 1189,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "stdout": "\n> @modelcontextprotocol/client@2.0.0-beta.3 test /private/tmp/capsule-baseline-worktrees/T09-codex-capsule/packages/client\n> vitest run test/client/responseCacheCodec.test.ts test/client/mcpParamMirroring.test.ts test/client/responseCache.test.ts\n\n\n RUN  v4.1.2 /private/tmp/capsule-baseline-worktrees/T09-codex-capsule/packages/client\n\n\n Test Files  2 passed (2)\n      Tests  67 passed (67)\n   Start at  18:19:30\n   Duration  661ms (transform 575ms, setup 37ms, import 823ms, tests 188ms, environment 0ms)\n\n",
+      "stderr": ""
+    },
+    {
+      "kind": "lint",
+      "command": [
+        "pnpm",
+        "--dir",
+        "packages/client",
+        "lint"
+      ],
+      "cwd": "/private/tmp/capsule-baseline-worktrees/T09-codex-capsule",
+      "startedAt": "2026-07-28T15:19:30.821Z",
+      "durationMs": 3934,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "stdout": "\n> @modelcontextprotocol/client@2.0.0-beta.3 lint /private/tmp/capsule-baseline-worktrees/T09-codex-capsule/packages/client\n> eslint src/ && prettier --ignore-path ../../.prettierignore --check .\n\nChecking formatting...\nAll matched files use Prettier code style!\n",
+      "stderr": ""
+    },
+    {
+      "kind": "typecheck",
+      "command": [
+        "pnpm",
+        "--dir",
+        "packages/client",
+        "typecheck"
+      ],
+      "cwd": "/private/tmp/capsule-baseline-worktrees/T09-codex-capsule",
+      "startedAt": "2026-07-28T15:19:34.755Z",
+      "durationMs": 2292,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "stdout": "\n> @modelcontextprotocol/client@2.0.0-beta.3 typecheck /private/tmp/capsule-baseline-worktrees/T09-codex-capsule/packages/client\n> tsgo -p tsconfig.json --noEmit\n\n",
+      "stderr": ""
+    }
+  ]
+}

@@ -1,0 +1,199 @@
+You are an independent senior TypeScript code reviewer. Compare two anonymized solutions to the same task.
+
+Rules:
+- Use only the task, patches, and validation summaries below. Do not use tools or infer author/model identity.
+- Passing tests are evidence, not proof. Inspect edge cases, scope, cleanup, concurrency, public API, and regression risk.
+- Penalize unnecessary edits and tests that do not actually prove the requested behavior.
+- Score each dimension from 1 (poor) to 5 (excellent).
+- Prefer X, Y, or tie. A tie is valid when patches are materially equivalent.
+- confidence MUST be a decimal number from 0 through 1 (for example 0.85), never a percentage.
+- Return only one JSON object. Do not use Markdown fences.
+
+Required JSON shape:
+{"schemaVersion":1,"taskId":"T08","preference":"X|Y|tie","confidence":0.0,"solutions":{"X":{"correctness":1,"coverage":1,"simplicity":1,"maintainability":1,"regressionSafety":1,"strengths":[],"fatalFlaws":[]},"Y":{"correctness":1,"coverage":1,"simplicity":1,"maintainability":1,"regressionSafety":1,"strengths":[],"fatalFlaws":[]}},"rationale":"max 2000 chars","requiredFollowups":[]}
+
+TASK
+Görev: Middleware paketlerinin declaration build sırasında workspace type graph'ını bundle edip dts üretiminde OOM oluşturmasını engelle; public tip yüzeyini koru.
+Başarı kriteri: Express/Fastify/Hono/Node declaration build'leri workspace graph'ını gömmeden tamamlanır; yayımlanan tip importları çözümlenir.
+
+SOLUTION X VALIDATION
+[{"kind":"build","status":"PASS","timedOut":false},{"kind":"declaration-oracle","status":"PASS","timedOut":false},{"kind":"lint","status":"PASS","timedOut":false},{"kind":"typecheck","status":"PASS","timedOut":false}]
+
+SOLUTION X PATCH
+diff --git a/packages/middleware/node/src/streamableHttp.ts b/packages/middleware/node/src/streamableHttp.ts
+index 68a0c22..c101fcd 100644
+--- a/packages/middleware/node/src/streamableHttp.ts
++++ b/packages/middleware/node/src/streamableHttp.ts
+@@ -10,8 +10,14 @@
+ import type { IncomingMessage, ServerResponse } from 'node:http';
+ 
+ import { getRequestListener } from '@hono/node-server';
+-import type { AuthInfo, JSONRPCMessage, MessageExtraInfo, RequestId, Transport } from '@modelcontextprotocol/core';
+-import type { WebStandardStreamableHTTPServerTransportOptions } from '@modelcontextprotocol/server';
++import type {
++    AuthInfo,
++    JSONRPCMessage,
++    MessageExtraInfo,
++    RequestId,
++    Transport,
++    WebStandardStreamableHTTPServerTransportOptions
++} from '@modelcontextprotocol/server';
+ import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/server';
+ 
+ /**
+diff --git a/packages/middleware/fastify/tsdown.config.ts b/packages/middleware/fastify/tsdown.config.ts
+index 64ed143..b041305 100644
+--- a/packages/middleware/fastify/tsdown.config.ts
++++ b/packages/middleware/fastify/tsdown.config.ts
+@@ -10,12 +10,13 @@ export default defineConfig({
+     target: 'esnext',
+     platform: 'node',
+     shims: true,
++    external: ['@modelcontextprotocol/server'],
+     dts: {
+         resolver: 'tsc',
+         compilerOptions: {
+             baseUrl: '.',
+             paths: {
+-                '@modelcontextprotocol/server': ['../server/src/index.ts']
++                '@modelcontextprotocol/server': ['../../server/src/index.ts']
+             }
+         }
+     }
+diff --git a/packages/middleware/express/tsdown.config.ts b/packages/middleware/express/tsdown.config.ts
+index 64ed143..b041305 100644
+--- a/packages/middleware/express/tsdown.config.ts
++++ b/packages/middleware/express/tsdown.config.ts
+@@ -10,12 +10,13 @@ export default defineConfig({
+     target: 'esnext',
+     platform: 'node',
+     shims: true,
++    external: ['@modelcontextprotocol/server'],
+     dts: {
+         resolver: 'tsc',
+         compilerOptions: {
+             baseUrl: '.',
+             paths: {
+-                '@modelcontextprotocol/server': ['../server/src/index.ts']
++                '@modelcontextprotocol/server': ['../../server/src/index.ts']
+             }
+         }
+     }
+diff --git a/packages/middleware/hono/tsdown.config.ts b/packages/middleware/hono/tsdown.config.ts
+index 64ed143..b041305 100644
+--- a/packages/middleware/hono/tsdown.config.ts
++++ b/packages/middleware/hono/tsdown.config.ts
+@@ -10,12 +10,13 @@ export default defineConfig({
+     target: 'esnext',
+     platform: 'node',
+     shims: true,
++    external: ['@modelcontextprotocol/server'],
+     dts: {
+         resolver: 'tsc',
+         compilerOptions: {
+             baseUrl: '.',
+             paths: {
+-                '@modelcontextprotocol/server': ['../server/src/index.ts']
++                '@modelcontextprotocol/server': ['../../server/src/index.ts']
+             }
+         }
+     }
+diff --git a/packages/middleware/node/tsdown.config.ts b/packages/middleware/node/tsdown.config.ts
+index 7d90f65..2de6779 100644
+--- a/packages/middleware/node/tsdown.config.ts
++++ b/packages/middleware/node/tsdown.config.ts
+@@ -16,16 +16,16 @@ export default defineConfig({
+     target: 'esnext',
+     platform: 'node',
+     shims: true, // Polyfills common Node.js shims (__dirname, etc.)
++    external: ['@modelcontextprotocol/server'],
+ 
+     // 4. Type Definitions
+     //    Bundles d.ts files into a single output
+     dts: {
+         resolver: 'tsc',
+-        // override just for DTS generation:
+         compilerOptions: {
+             baseUrl: '.',
+             paths: {
+-                '@modelcontextprotocol/core': ['../core/src/index.ts']
++                '@modelcontextprotocol/server': ['../../server/src/index.ts']
+             }
+         }
+     }
+
+
+SOLUTION Y VALIDATION
+[{"kind":"build","status":"PASS","timedOut":false},{"kind":"declaration-oracle","status":"PASS","timedOut":false},{"kind":"lint","status":"PASS","timedOut":false},{"kind":"typecheck","status":"PASS","timedOut":false}]
+
+SOLUTION Y PATCH
+diff --git a/packages/middleware/express/tsdown.config.ts b/packages/middleware/express/tsdown.config.ts
+index 64ed143..e3661d8 100644
+--- a/packages/middleware/express/tsdown.config.ts
++++ b/packages/middleware/express/tsdown.config.ts
+@@ -18,5 +18,6 @@ export default defineConfig({
+                 '@modelcontextprotocol/server': ['../server/src/index.ts']
+             }
+         }
+-    }
++    },
++    external: ['@modelcontextprotocol/server']
+ });
+diff --git a/packages/middleware/node/tsdown.config.ts b/packages/middleware/node/tsdown.config.ts
+index 7d90f65..0a75f72 100644
+--- a/packages/middleware/node/tsdown.config.ts
++++ b/packages/middleware/node/tsdown.config.ts
+@@ -28,5 +28,6 @@ export default defineConfig({
+                 '@modelcontextprotocol/core': ['../core/src/index.ts']
+             }
+         }
+-    }
++    },
++    external: ['@modelcontextprotocol/core', '@modelcontextprotocol/server']
+ });
+diff --git a/packages/middleware/hono/tsdown.config.ts b/packages/middleware/hono/tsdown.config.ts
+index 64ed143..e3661d8 100644
+--- a/packages/middleware/hono/tsdown.config.ts
++++ b/packages/middleware/hono/tsdown.config.ts
+@@ -18,5 +18,6 @@ export default defineConfig({
+                 '@modelcontextprotocol/server': ['../server/src/index.ts']
+             }
+         }
+-    }
++    },
++    external: ['@modelcontextprotocol/server']
+ });
+diff --git a/packages/middleware/fastify/tsdown.config.ts b/packages/middleware/fastify/tsdown.config.ts
+index 64ed143..e3661d8 100644
+--- a/packages/middleware/fastify/tsdown.config.ts
++++ b/packages/middleware/fastify/tsdown.config.ts
+@@ -18,5 +18,6 @@ export default defineConfig({
+                 '@modelcontextprotocol/server': ['../server/src/index.ts']
+             }
+         }
+-    }
++    },
++    external: ['@modelcontextprotocol/server']
+ });
+diff --git a/packages/middleware/node/src/streamableHttp.ts b/packages/middleware/node/src/streamableHttp.ts
+index 68a0c22..c101fcd 100644
+--- a/packages/middleware/node/src/streamableHttp.ts
++++ b/packages/middleware/node/src/streamableHttp.ts
+@@ -10,8 +10,14 @@
+ import type { IncomingMessage, ServerResponse } from 'node:http';
+ 
+ import { getRequestListener } from '@hono/node-server';
+-import type { AuthInfo, JSONRPCMessage, MessageExtraInfo, RequestId, Transport } from '@modelcontextprotocol/core';
+-import type { WebStandardStreamableHTTPServerTransportOptions } from '@modelcontextprotocol/server';
++import type {
++    AuthInfo,
++    JSONRPCMessage,
++    MessageExtraInfo,
++    RequestId,
++    Transport,
++    WebStandardStreamableHTTPServerTransportOptions
++} from '@modelcontextprotocol/server';
+ import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/server';
+ 
+ /**
+

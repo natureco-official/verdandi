@@ -1,0 +1,61 @@
+{
+  "taskId": "T06",
+  "agent": "codex-capsule",
+  "worktree": "/private/tmp/capsule-baseline-worktrees/T06-codex-capsule",
+  "completedAt": "2026-07-28T14:56:06.111Z",
+  "results": [
+    {
+      "kind": "test",
+      "command": [
+        "pnpm",
+        "--dir",
+        "packages/core-internal",
+        "test",
+        "test/shared/inboundClassification.test.ts",
+        "test/shared/standardHeaderValidation.test.ts"
+      ],
+      "cwd": "/private/tmp/capsule-baseline-worktrees/T06-codex-capsule",
+      "startedAt": "2026-07-28T14:56:00.125Z",
+      "durationMs": 817,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "stdout": "\n> @modelcontextprotocol/core-internal@2.0.0-beta.1 test /private/tmp/capsule-baseline-worktrees/T06-codex-capsule/packages/core-internal\n> vitest run test/shared/inboundClassification.test.ts test/shared/standardHeaderValidation.test.ts\n\n\n RUN  v4.1.2 /private/tmp/capsule-baseline-worktrees/T06-codex-capsule/packages/core-internal\n\n\n Test Files  2 passed (2)\n      Tests  70 passed (70)\n   Start at  17:56:00\n   Duration  319ms (transform 214ms, setup 0ms, import 396ms, tests 27ms, environment 0ms)\n\n",
+      "stderr": ""
+    },
+    {
+      "kind": "lint",
+      "command": [
+        "pnpm",
+        "--dir",
+        "packages/core-internal",
+        "lint"
+      ],
+      "cwd": "/private/tmp/capsule-baseline-worktrees/T06-codex-capsule",
+      "startedAt": "2026-07-28T14:56:00.944Z",
+      "durationMs": 4788,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "stdout": "\n> @modelcontextprotocol/core-internal@2.0.0-beta.1 lint /private/tmp/capsule-baseline-worktrees/T06-codex-capsule/packages/core-internal\n> eslint src/ && prettier --ignore-path ../../.prettierignore --check .\n\nChecking formatting...\nAll matched files use Prettier code style!\n",
+      "stderr": ""
+    },
+    {
+      "kind": "typecheck",
+      "command": [
+        "pnpm",
+        "--dir",
+        "packages/core-internal",
+        "typecheck"
+      ],
+      "cwd": "/private/tmp/capsule-baseline-worktrees/T06-codex-capsule",
+      "startedAt": "2026-07-28T14:56:05.732Z",
+      "durationMs": 379,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "stdout": "\n> @modelcontextprotocol/core-internal@2.0.0-beta.1 typecheck /private/tmp/capsule-baseline-worktrees/T06-codex-capsule/packages/core-internal\n> tsgo -p tsconfig.json --noEmit\n\n",
+      "stderr": ""
+    }
+  ]
+}

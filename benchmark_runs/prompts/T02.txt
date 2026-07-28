@@ -1,0 +1,2 @@
+Görev: Cloudflare Workers entegrasyon testinin koşum sırasında workspace `dist` çıktısını yeniden yazmasını ve diğer testleri etkilemesini engelle.
+Başarı kriteri: Test izole geçici çıktı kullanır; workspace `dist` değişmez; entegrasyon testi geçer.

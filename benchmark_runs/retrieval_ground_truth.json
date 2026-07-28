@@ -1,0 +1,130 @@
+{
+  "schemaVersion": 1,
+  "tasks": [
+    {
+      "id": "T01",
+      "primaryFileGroups": [["packages/client/src/client/auth.ts"]],
+      "acceptableFiles": ["packages/client/src/client/auth.ts", "packages/client/test/client/auth.test.ts"],
+      "symbolPatterns": ["applyPublicAuth"]
+    },
+    {
+      "id": "T02",
+      "primaryFileGroups": [["test/integration/test/server/cloudflareWorkers.test.ts"]],
+      "acceptableFiles": ["test/integration/test/server/cloudflareWorkers.test.ts"],
+      "symbolPatterns": ["(getFreePort|killWranglerTree|should handle MCP requests)"]
+    },
+    {
+      "id": "T03",
+      "primaryFileGroups": [["test/integration/test/server/cloudflareWorkers.test.ts"]],
+      "acceptableFiles": ["test/integration/test/server/cloudflareWorkers.test.ts"],
+      "symbolPatterns": ["(signalProcessGroup|stopProcessGroup)"]
+    },
+    {
+      "id": "T04",
+      "primaryFileGroups": [
+        ["packages/client/test/client/auth.test.ts", "packages/client/test/client/tokenProvider.test.ts"],
+        ["packages/client/test/client/streamableHttp.test.ts"]
+      ],
+      "acceptableFiles": [
+        "packages/client/test/client/auth.test.ts",
+        "packages/client/test/client/tokenProvider.test.ts",
+        "packages/client/test/client/streamableHttp.test.ts",
+        "packages/client/test/client/middleware.test.ts",
+        "packages/client/src/client/streamableHttp.ts"
+      ],
+      "symbolPatterns": ["401.*retry|retry.*401", "refresh.*retr|retr.*refresh"]
+    },
+    {
+      "id": "T05",
+      "primaryFileGroups": [
+        ["packages/server/src/server/mcp.ts"],
+        ["packages/server/test/server/mcp.compat.test.ts", "test/integration/test/server/mcp.test.ts"]
+      ],
+      "acceptableFiles": [
+        "packages/server/src/server/mcp.ts",
+        "packages/server/test/server/mcp.compat.test.ts",
+        "test/integration/test/server/mcp.test.ts",
+        "packages/server/test/server/createMcpHandler.test.ts"
+      ],
+      "symbolPatterns": ["(malformed URI|invalid resource URI|ReadResourceCallback)"]
+    },
+    {
+      "id": "T06",
+      "primaryFileGroups": [
+        ["packages/core-internal/src/shared/inboundClassification.ts"],
+        ["packages/core-internal/test/shared/standardHeaderValidation.test.ts"]
+      ],
+      "acceptableFiles": [
+        "packages/core-internal/src/shared/inboundClassification.ts",
+        "packages/core-internal/test/shared/standardHeaderValidation.test.ts",
+        "packages/core-internal/test/shared/mcpParamHeaders.test.ts",
+        "packages/server/test/server/stdHeaderValidation.test.ts"
+      ],
+      "symbolPatterns": ["trimHeaderOws", "OWS around standard header"]
+    },
+    {
+      "id": "T07",
+      "primaryFileGroups": [
+        ["packages/client/src/client/streamableHttp.ts"],
+        ["packages/client/test/client/streamableHttp.test.ts"]
+      ],
+      "acceptableFiles": [
+        "packages/client/src/client/streamableHttp.ts",
+        "packages/client/test/client/streamableHttp.test.ts",
+        "packages/middleware/node/test/streamableHttp.test.ts",
+        "packages/server/test/server/streamableHttp.test.ts"
+      ],
+      "symbolPatterns": ["stale session ID", "StreamableHTTPClientTransport"]
+    },
+    {
+      "id": "T08",
+      "primaryFileGroups": [
+        ["packages/middleware/express/tsdown.config.ts"],
+        ["packages/middleware/fastify/tsdown.config.ts"],
+        ["packages/middleware/hono/tsdown.config.ts"],
+        ["packages/middleware/node/tsdown.config.ts"]
+      ],
+      "acceptableFiles": [
+        "packages/middleware/express/tsdown.config.ts",
+        "packages/middleware/fastify/tsdown.config.ts",
+        "packages/middleware/hono/tsdown.config.ts",
+        "packages/middleware/node/tsdown.config.ts",
+        "packages/middleware/node/src/streamableHttp.ts"
+      ],
+      "symbolPatterns": ["tsdown\\.config\\.ts"]
+    },
+    {
+      "id": "T09",
+      "primaryFileGroups": [
+        ["packages/client/src/client/responseCache.ts"],
+        ["packages/client/test/client/responseCache.test.ts"],
+        ["packages/client/src/client/client.ts", "packages/client/test/client/mcpParamMirroring.test.ts"]
+      ],
+      "acceptableFiles": [
+        "packages/client/src/client/responseCache.ts",
+        "packages/client/test/client/responseCache.test.ts",
+        "packages/client/src/client/client.ts",
+        "packages/client/test/client/mcpParamMirroring.test.ts"
+      ],
+      "symbolPatterns": ["serializeProtocolDocument", "cache codec round-trips"]
+    },
+    {
+      "id": "T10",
+      "primaryFileGroups": [
+        ["packages/server/src/server/streamableHttp.ts"],
+        ["packages/server/src/server/perRequestTransport.ts"],
+        ["packages/server/test/server/perRequestStreaming.test.ts"],
+        ["packages/server/test/server/streamableHttp.test.ts"]
+      ],
+      "acceptableFiles": [
+        "packages/server/src/server/streamableHttp.ts",
+        "packages/server/src/server/perRequestTransport.ts",
+        "packages/server/src/server/createMcpHandler.ts",
+        "packages/server/src/server/invoke.ts",
+        "packages/server/test/server/perRequestStreaming.test.ts",
+        "packages/server/test/server/streamableHttp.test.ts"
+      ],
+      "symbolPatterns": ["keep-alive comments", "WebStandardStreamableHTTPServerTransport"]
+    }
+  ]
+}

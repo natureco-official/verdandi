@@ -1,0 +1,133 @@
+{
+  "schemaVersion": 1,
+  "taskId": "T04",
+  "reviewer": "gemini-cli",
+  "assignment": {
+    "X": "codex",
+    "Y": "codex-capsule"
+  },
+  "preference": "X",
+  "preferredVariant": "codex",
+  "scores": {
+    "X": 25,
+    "Y": 23,
+    "codex": 25,
+    "codexCapsule": 23
+  },
+  "review": {
+    "schemaVersion": 1,
+    "taskId": "T04",
+    "preference": "X",
+    "confidence": 0.9,
+    "solutions": {
+      "X": {
+        "correctness": 5,
+        "coverage": 5,
+        "simplicity": 5,
+        "maintainability": 5,
+        "regressionSafety": 5,
+        "strengths": [
+          "Fulfills the requirement to add tests to both Auth and Streamable HTTP suites.",
+          "Both tests explicitly verify the full 401-refresh-retry/update cycle.",
+          "Directly tests the 'onUnauthorized' logic in the adapted provider.",
+          "Clean and effective mocking of tokens and fetch responses."
+        ],
+        "fatalFlaws": []
+      },
+      "Y": {
+        "correctness": 5,
+        "coverage": 4,
+        "simplicity": 4,
+        "maintainability": 5,
+        "regressionSafety": 5,
+        "strengths": [
+          "High-quality integration test in StreamableHTTPClientTransport covering the full metadata discovery flow.",
+          "Tests the interaction with WWW-Authenticate headers accurately."
+        ],
+        "fatalFlaws": [
+          "Does not provide an Auth flow test in 'auth.test.ts' as requested; only adds a unit test for header parsing."
+        ]
+      }
+    },
+    "rationale": "Solution X is preferred because it strictly adheres to the success criteria, which specifically requested that both Auth and Streamable HTTP tests verify the 401, refresh, and retry/token update. Solution X adds a test for the 'onUnauthorized' callback in the Auth suite and a retry test in the Streamable suite. In contrast, Solution Y's addition to the Auth suite is limited to a unit test for header parsing, failing to verify the refresh logic flow in that context. While Solution Y's Streamable test is more detailed regarding the discovery of protected resource metadata, Solution X provides better overall coverage across the requested areas.",
+    "requiredFollowups": []
+  },
+  "usage": {
+    "gemini-3.1-pro-preview-customtools": {
+      "api": {
+        "totalRequests": 1,
+        "totalErrors": 1,
+        "totalLatencyMs": 333
+      },
+      "tokens": {
+        "input": 0,
+        "prompt": 0,
+        "candidates": 0,
+        "total": 0,
+        "cached": 0,
+        "thoughts": 0,
+        "tool": 0
+      },
+      "roles": {
+        "main": {
+          "totalRequests": 1,
+          "totalErrors": 1,
+          "totalLatencyMs": 333,
+          "tokens": {
+            "input": 0,
+            "prompt": 0,
+            "candidates": 0,
+            "total": 0,
+            "cached": 0,
+            "thoughts": 0,
+            "tool": 0
+          }
+        }
+      }
+    },
+    "gemini-3-flash-preview": {
+      "api": {
+        "totalRequests": 3,
+        "totalErrors": 2,
+        "totalLatencyMs": 22984
+      },
+      "tokens": {
+        "input": 16021,
+        "prompt": 16021,
+        "candidates": 351,
+        "total": 19769,
+        "cached": 0,
+        "thoughts": 3397,
+        "tool": 0
+      },
+      "roles": {
+        "main": {
+          "totalRequests": 3,
+          "totalErrors": 2,
+          "totalLatencyMs": 22984,
+          "tokens": {
+            "input": 16021,
+            "prompt": 16021,
+            "candidates": 351,
+            "total": 19769,
+            "cached": 0,
+            "thoughts": 3397,
+            "tool": 0
+          }
+        }
+      }
+    }
+  },
+  "warnings": [
+    "    at async retryWithBackoff (file:///opt/homebrew/Cellar/gemini-cli/0.46.0/libexec/lib/node_modules/@google/gemini-cli/bundle/chunk-RCJSF5RP.js:304851:23)",
+    "    at async GeminiChat.makeApiCallAndProcessStream (file:///opt/homebrew/Cellar/gemini-cli/0.46.0/libexec/lib/node_modules/@google/gemini-cli/bundle/chunk-RCJSF5RP.js:328315:28)",
+    "    at async GeminiChat.streamWithRetries (file:///opt/homebrew/Cellar/gemini-cli/0.46.0/libexec/lib/node_modules/@google/gemini-cli/bundle/chunk-RCJSF5RP.js:328133:29)",
+    "    at async Turn.run (file:///opt/homebrew/Cellar/gemini-cli/0.46.0/libexec/lib/node_modules/@google/gemini-cli/bundle/chunk-RCJSF5RP.js:328879:24) {",
+    "  status: 503",
+    "}",
+    "Attempt 2 failed: You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. ",
+    "* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 5, model: gemini-3-flash",
+    "Please retry in 38.612304699s.",
+    "Suggested retry after 38s.. Retrying after 38682ms..."
+  ]
+}

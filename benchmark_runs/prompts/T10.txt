@@ -1,0 +1,2 @@
+Görev: Web-standard Streamable HTTP transport'ta uzun SSE bağlantılarının boşta kalıp ara katmanlarca kapatılmasını önlemek için comment-frame keep-alive desteği ekle.
+Başarı kriteri: Per-request ve shared transport yolları periyodik SSE comment frame yollar; timer kapanış/abort sonrası temizlenir; ilgili server testleri geçer.

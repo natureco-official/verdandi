@@ -1,0 +1,128 @@
+{
+  "schemaVersion": 1,
+  "taskId": "T03",
+  "reviewer": "gemini-cli",
+  "assignment": {
+    "X": "codex-capsule",
+    "Y": "codex"
+  },
+  "preference": "Y",
+  "preferredVariant": "codex",
+  "scores": {
+    "X": 16,
+    "Y": 23,
+    "codex": 23,
+    "codexCapsule": 16
+  },
+  "review": {
+    "schemaVersion": 1,
+    "taskId": "T03",
+    "preference": "Y",
+    "confidence": 0.95,
+    "solutions": {
+      "X": {
+        "correctness": 3,
+        "coverage": 3,
+        "simplicity": 4,
+        "maintainability": 3,
+        "regressionSafety": 3,
+        "strengths": [
+          "Uses process groups (negative PID) to target orphans.",
+          "Cleans up logic to avoid double-execution."
+        ],
+        "fatalFlaws": [
+          "POSIX specific; `process.kill(-pid)` will throw an error on Windows.",
+          "Relies on `npx` which introduces an extra wrapper process that can complicate signal propagation."
+        ]
+      },
+      "Y": {
+        "correctness": 5,
+        "coverage": 5,
+        "simplicity": 3,
+        "maintainability": 5,
+        "regressionSafety": 5,
+        "strengths": [
+          "Cross-platform support (Windows taskkill vs POSIX process groups).",
+          "Directly executes wrangler JS entry point, avoiding `npx` shell overhead.",
+          "Adds timeouts to the readiness fetch probe to prevent hanging.",
+          "Robust state management for `proc` and `tempDir` ensures cleanup on partial setup failure."
+        ],
+        "fatalFlaws": []
+      }
+    },
+    "rationale": "Solution Y is a far more professional and robust implementation. \n\n1. **Cross-Platform Integrity**: Solution X uses negative PIDs for process group signaling, which is a POSIX-only feature. It would crash on Windows. Solution Y explicitly handles Windows using `taskkill /T /F` and POSIX using process groups.\n2. **Process Control**: Solution Y bypasses `npx` and shell wrappers by invoking the `wrangler` entry point directly with `process.execPath`. This significantly reduces the risk of 'zombie' processes caused by shell signal swallowing.\n3. **Readiness Robustness**: Solution Y adds an `AbortSignal.timeout` to the HTTP probe in `waitForMcpReady`. Without this, the test runner itself could hang if the worker accepts a socket but never responds.\n4. **Resource Management**: Y refactors the setup to track `proc` and `tempDir` in the outer scope of the `describe` block, ensuring that if any step in `beforeAll` fails (like `npm install` or the initial spawn), the `cleanup` function still has access to the variables needed to kill processes and delete directories. \n\nWhile Y is more complex, the complexity is entirely justified by the requirements of preventing leaked processes in varied CI environments.",
+    "requiredFollowups": []
+  },
+  "usage": {
+    "gemini-3.1-pro-preview-customtools": {
+      "api": {
+        "totalRequests": 1,
+        "totalErrors": 1,
+        "totalLatencyMs": 278
+      },
+      "tokens": {
+        "input": 0,
+        "prompt": 0,
+        "candidates": 0,
+        "total": 0,
+        "cached": 0,
+        "thoughts": 0,
+        "tool": 0
+      },
+      "roles": {
+        "main": {
+          "totalRequests": 1,
+          "totalErrors": 1,
+          "totalLatencyMs": 278,
+          "tokens": {
+            "input": 0,
+            "prompt": 0,
+            "candidates": 0,
+            "total": 0,
+            "cached": 0,
+            "thoughts": 0,
+            "tool": 0
+          }
+        }
+      }
+    },
+    "gemini-3-flash-preview": {
+      "api": {
+        "totalRequests": 1,
+        "totalErrors": 0,
+        "totalLatencyMs": 25716
+      },
+      "tokens": {
+        "input": 15770,
+        "prompt": 15770,
+        "candidates": 501,
+        "total": 17396,
+        "cached": 0,
+        "thoughts": 1125,
+        "tool": 0
+      },
+      "roles": {
+        "main": {
+          "totalRequests": 1,
+          "totalErrors": 0,
+          "totalLatencyMs": 25716,
+          "tokens": {
+            "input": 15770,
+            "prompt": 15770,
+            "candidates": 501,
+            "total": 17396,
+            "cached": 0,
+            "thoughts": 1125,
+            "tool": 0
+          }
+        }
+      }
+    }
+  },
+  "warnings": [
+    "Warning: Basic terminal detected (TERM=dumb). Visual rendering will be limited. For the best experience, use a terminal emulator with truecolor support.",
+    "Warning: 256-color support not detected. Using a terminal with at least 256-color support is recommended for a better visual experience.",
+    "[STARTUP] Phase 'cleanup_ops' was started but never ended. Skipping metrics.",
+    "[STARTUP] Cannot measure phase 'cleanup_ops': start mark 'startup:cleanup_ops:start' not found (likely cleared by reset)."
+  ]
+}

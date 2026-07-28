@@ -1,0 +1,208 @@
+import { describe, it } from "node:test";
+import assert from "node:assert/strict";
+import { spawn, type ChildProcess } from "node:child_process";
+import { createInterface } from "node:readline";
+import path from "node:path";
+
+const SERVER_PATH = path.resolve(import.meta.dirname, "../dist/src/mcp_server.js");
+const PROJECT_ROOT = path.resolve(import.meta.dirname, "..");
+
+interface JsonRpcResponse {
+  jsonrpc: "2.0";
+  id: number;
+  result?: unknown;
+  error?: { code: number; message: string };
+}
+
+function createClient() {
+  const child = spawn(process.execPath, [SERVER_PATH], {
+    cwd: PROJECT_ROOT,
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+
+  const lines = createInterface({ input: child.stdout! });
+  const pending = new Map<number, (res: JsonRpcResponse) => void>();
+  let nextId = 1;
+  let killed = false;
+
+  lines.on("line", (line) => {
+    const response = JSON.parse(line) as JsonRpcResponse;
+    const resolve = pending.get(response.id);
+    if (resolve) {
+      pending.delete(response.id);
+      resolve(response);
+    }
+  });
+
+  function request(method: string, params: unknown = {}): Promise<unknown> {
+    const id = nextId++;
+    return new Promise((resolve, reject) => {
+      pending.set(id, (response) => {
+        if (response.error) reject(new Error(response.error.message));
+        else resolve(response.result);
+      });
+      child.stdin!.write(`${JSON.stringify({ jsonrpc: "2.0", id, method, params })}\n`);
+    });
+  }
+
+  function kill() {
+    if (killed) return;
+    killed = true;
+    lines.close();
+    child.stdin!.end();
+    child.kill();
+  }
+
+  return { request, kill };
+}
+
+describe("MCP Server (stdio JSON-RPC)", () => {
+  it("initialize yanitinda serverInfo doner", async () => {
+    const { request, kill } = createClient();
+    try {
+      const result = (await request("initialize", { protocolVersion: "2024-11-05" })) as any;
+      assert.equal(result.serverInfo.name, "verdandi-context-compiler");
+      assert.equal(result.serverInfo.version, "0.1.0");
+      assert.ok(result.capabilities.tools, "tools capability declared");
+    } finally {
+      kill();
+    }
+  });
+
+  it("tools/list 5 arac listeler", async () => {
+    const { request, kill } = createClient();
+    try {
+      await request("initialize", {});
+      const result = (await request("tools/list")) as any;
+      const names = result.tools.map((t: any) => t.name);
+      assert.deepEqual(names, [
+        "context_capsule",
+        "read_symbol",
+        "apply_structured_patch",
+        "rollback_patch",
+        "validate_delta",
+      ]);
+      assert.ok(result.tools.every((t: any) => t.inputSchema, "all tools have schemas"));
+    } finally {
+      kill();
+    }
+  });
+
+  it("context_capsule calisir", async () => {
+    const { request, kill } = createClient();
+    try {
+      await request("initialize", {});
+      const result = (await request("tools/call", {
+        name: "context_capsule",
+        arguments: { projectRoot: PROJECT_ROOT, task: "context capsule uret", preferredBudgetLevel: 1 },
+      })) as any;
+
+      assert.ok(result.structuredContent, "structuredContent present");
+      assert.equal(result.structuredContent.schema_version, "0.2.0");
+      assert.ok(result.structuredContent.task_id.length > 0);
+      assert.ok(result.structuredContent.model_payload.goal.length > 0);
+      assert.ok(result.structuredContent.control.estimated_payload_tokens > 0);
+    } finally {
+      kill();
+    }
+  });
+
+  it("read_symbol calisir", async () => {
+    const { request, kill } = createClient();
+    try {
+      await request("initialize", {});
+      const result = (await request("tools/call", {
+        name: "read_symbol",
+        arguments: { projectRoot: PROJECT_ROOT, symbol: "TypeScriptContextCompiler", fileHint: "context_compiler" },
+      })) as any;
+
+      assert.ok(result.structuredContent.evidence.length >= 1);
+      assert.equal(result.structuredContent.evidence[0].symbol.symbol, "TypeScriptContextCompiler");
+      assert.ok(result.structuredContent.snapshot.length > 0);
+    } finally {
+      kill();
+    }
+  });
+
+  it("validate_delta calisir", async () => {
+    const { request, kill } = createClient();
+    try {
+      await request("initialize", {});
+      const result = (await request("tools/call", {
+        name: "validate_delta",
+        arguments: { projectRoot: PROJECT_ROOT, taskId: "server-test-01", kinds: ["build"] },
+      })) as any;
+
+      assert.equal(result.structuredContent.passed, true);
+      assert.ok(result.structuredContent.checks.length >= 1);
+    } finally {
+      kill();
+    }
+  });
+
+  it("bilinmeyen tool icin hata doner", async () => {
+    const { request, kill } = createClient();
+    try {
+      await request("initialize", {});
+      await assert.rejects(() => request("tools/call", { name: "nonexistent", arguments: {} }), /Unknown tool/);
+    } finally {
+      kill();
+    }
+  });
+
+  it("bilinmeyen method icin -32601 hatasi doner", async () => {
+    const { request, kill } = createClient();
+    try {
+      await request("initialize", {});
+      await assert.rejects(() => request("unknown/method", {}), /Method not found/);
+    } finally {
+      kill();
+    }
+  });
+
+  it("gecersiz veya eksik param icin -32602 hatasi doner", async () => {
+    const { request, kill } = createClient();
+    try {
+      await request("initialize", {});
+      await assert.rejects(
+        () => request("tools/call", { name: "context_capsule", arguments: {} }),
+        /Invalid params: Missing required parameter/
+      );
+    } finally {
+      kill();
+    }
+  });
+
+  it("notifications/initialized sessizce gecer", async () => {
+    const { request, kill } = createClient();
+    try {
+      await request("initialize", {});
+      // notification doesn't produce a response — just verify no crash
+      // The server skips notifications (id === undefined) silently
+      const child = spawn(process.execPath, [SERVER_PATH], {
+        cwd: PROJECT_ROOT,
+        stdio: ["pipe", "pipe", "pipe"],
+      });
+      const lines = createInterface({ input: child.stdout! });
+
+      // Send initialize first
+      child.stdin!.write(JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} }) + "\n");
+
+      // Wait for response, then send notification
+      await new Promise<void>((resolve) => {
+        lines.on("line", () => {
+          // Got first response, now send notification (no id field)
+          child.stdin!.write(JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }) + "\n");
+          // If server doesn't crash, test passes
+          setTimeout(() => {
+            lines.close();
+            child.kill();
+            resolve();
+          }, 200);
+        });
+      });
+    } finally {
+      kill();
+    }
+  });
+});

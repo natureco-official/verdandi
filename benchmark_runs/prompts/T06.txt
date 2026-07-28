@@ -1,0 +1,2 @@
+Görev: Standart MCP header değerlerini doğrulamadan önce optional whitespace'i (OWS) kırp; iç değeri gevşek eşleştirme.
+Başarı kriteri: Baştaki/sondaki space ve tab kabul edilir; yanlış iç değer reddedilir; header doğrulama testleri geçer.

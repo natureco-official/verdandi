@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "verdandi-context-compiler": {
+      "command": "node",
+      "args": ["./dist/src/mcp_server.js"],
+      "_comment": "Codex/Claude Code launch this with cwd set to the project root, so a relative path works across machines. If your agent does not set cwd, replace the args path with an absolute path to dist/src/mcp_server.js on your machine, and 'command' with an absolute node path if 'node' isn't on PATH."
+    }
+  }
+}

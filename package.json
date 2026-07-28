@@ -1,0 +1,60 @@
+{
+  "name": "verdandi-context-compiler",
+  "version": "0.2.0",
+  "description": "Verðandi — Universal context compiler for AI coding agents (Present Task Context). Works with Codex, Claude Code, OpenCode, NatureCo, Hermes, OpenClaw, Kimi, GLM, Antigravity.",
+  "packageManager": "npm@11.17.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20.11",
+    "npm": ">=10"
+  },
+  "bin": {
+    "verdandi-context-compiler": "./bin/verdandi-context-compiler",
+    "verdandi-agent": "./bin/verdandi-agent"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/src/mcp_server.js",
+    "test": "npm run build && node --import tsx --test __tests__/*.test.ts",
+    "typecheck": "tsc -p tsconfig.json",
+    "lint": "npm run typecheck && node scripts/lint.mjs",
+    "benchmark:retrieval": "node --import tsx benchmark_runs/oracles/retrieval_quality.mjs",
+    "benchmark:blind-review": "node benchmark_runs/run_blind_review.mjs",
+    "setup:codex": "node bin/verdandi-context-compiler setup codex",
+    "setup:claude": "node bin/verdandi-context-compiler setup claude",
+    "setup:opencode": "node bin/verdandi-context-compiler setup opencode",
+    "setup:natureco": "node bin/verdandi-context-compiler setup natureco",
+    "setup:hermes": "node bin/verdandi-context-compiler setup hermes",
+    "setup:openclaw": "node bin/verdandi-context-compiler setup openclaw",
+    "setup:kimi": "node bin/verdandi-context-compiler setup kimi",
+    "setup:glm": "node bin/verdandi-context-compiler setup glm",
+    "setup:antigravity": "node bin/verdandi-context-compiler setup antigravity"
+  },
+  "keywords": [
+    "mcp",
+    "context-compiler",
+    "ai-agent",
+    "codex",
+    "claude-code",
+    "opencode",
+    "natureco",
+    "hermes",
+    "openclaw",
+    "kimi",
+    "glm",
+    "token-optimization",
+    "ast-indexing"
+  ],
+  "author": "NatureCo",
+  "license": "MIT",
+  "dependencies": {
+    "typescript": "^5.9.3"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/client": "2.0.0",
+    "@types/node": "^24.0.0",
+    "js-tiktoken": "^1.0.21",
+    "tsx": "^4.19.0"
+  }
+}

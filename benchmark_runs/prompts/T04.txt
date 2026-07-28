@@ -1,0 +1,2 @@
+Görev: Geçersiz token nedeniyle 401 alan client auth akışının token refresh sonrası isteği doğru biçimde yeniden denediğini kapsayan regresyon testleri ekle.
+Başarı kriteri: Auth ve Streamable HTTP testleri ilk 401'i, tek refresh'i ve başarılı retry'ı doğrular; mevcut testler geçer.

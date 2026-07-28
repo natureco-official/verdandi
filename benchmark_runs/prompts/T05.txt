@@ -1,0 +1,2 @@
+Görev: Server resource URI'si çözümlenemediğinde genel/internal hata yerine MCP `Invalid Params` hatası döndür.
+Başarı kriteri: Malformed URI entegrasyon testi `Invalid Params` kodunu doğrular; geçerli resource istekleri etkilenmez.

@@ -1,0 +1,85 @@
+import { createInterface } from "node:readline";
+import { TypeScriptContextCompiler } from "./context_compiler.js";
+import { mapContextCapsule, MCP_TOOL_NAMES } from "../mcp_tools.js";
+
+const tools = new TypeScriptContextCompiler();
+const toolSchemas = {
+  context_capsule: { type: "object", required: ["task", "projectRoot"], properties: { task: { type: "string" }, projectRoot: { type: "string" }, preferredBudgetLevel: { type: "integer" }, escalationAttempt: { type: "integer" }, maxEscalationAttempts: { type: "integer" } } },
+  read_symbol: { type: "object", required: ["projectRoot", "symbol"], properties: { projectRoot: { type: "string" }, symbol: { type: "string" }, fileHint: { type: "string" }, includeBody: { type: "boolean" }, maxTokens: { type: "integer" } } },
+  apply_structured_patch: { type: "object", required: ["projectRoot", "taskId", "snapshot", "language", "operations"], properties: { projectRoot: { type: "string" }, taskId: { type: "string" }, snapshot: { type: "string" }, language: { type: "string" }, operations: { type: "array" }, dryRun: { type: "boolean" } } },
+  rollback_patch: { type: "object", required: ["projectRoot", "rollbackToken"], properties: { projectRoot: { type: "string" }, rollbackToken: { type: "string" } } },
+  validate_delta: { type: "object", required: ["projectRoot", "taskId", "kinds"], properties: { projectRoot: { type: "string" }, taskId: { type: "string" }, kinds: { type: "array" }, maxDiagnostics: { type: "integer" } } },
+};
+
+function reply(id: unknown, result?: unknown, error?: { code: number; message: string }) {
+  process.stdout.write(`${JSON.stringify({ jsonrpc: "2.0", id, ...(error ? { error } : { result }) })}\n`);
+}
+
+function validateToolArguments(schema: any, args: any): string | null {
+  if (!args || typeof args !== "object") {
+    return "Invalid arguments: expected object";
+  }
+  for (const req of schema.required ?? []) {
+    if (args[req] === undefined || args[req] === null) {
+      return `Missing required parameter: '${req}'`;
+    }
+  }
+  for (const [key, prop] of Object.entries(schema.properties ?? {}) as [string, any][]) {
+    const val = args[key];
+    if (val === undefined || val === null) continue;
+    const expectedType = prop.type;
+    if (expectedType === "string" && typeof val !== "string") {
+      return `Invalid type for '${key}': expected string, got ${typeof val}`;
+    }
+    if ((expectedType === "integer" || expectedType === "number") && typeof val !== "number") {
+      return `Invalid type for '${key}': expected number, got ${typeof val}`;
+    }
+    if (expectedType === "boolean" && typeof val !== "boolean") {
+      return `Invalid type for '${key}': expected boolean, got ${typeof val}`;
+    }
+    if (expectedType === "array" && !Array.isArray(val)) {
+      return `Invalid type for '${key}': expected array, got ${typeof val}`;
+    }
+  }
+  return null;
+}
+
+const input = createInterface({ input: process.stdin, crlfDelay: Infinity });
+input.on("line", async line => {
+  if (!line.trim()) return;
+  let request: any;
+  try { request = JSON.parse(line); } catch { return; }
+  if (request.id === undefined && request.method?.startsWith("notifications/")) return;
+  if (request.id === undefined) return;
+  try {
+    if (request.method === "initialize") {
+      reply(request.id, { protocolVersion: request.params?.protocolVersion ?? "2024-11-05", capabilities: { tools: {} }, serverInfo: { name: "verdandi-context-compiler", version: "0.1.0" } });
+    } else if (request.method === "ping") {
+      reply(request.id, {});
+    } else if (request.method === "tools/list") {
+      reply(request.id, { tools: MCP_TOOL_NAMES.map(name => ({ name, description: `Verðandi context compiler ${name}`, inputSchema: toolSchemas[name] })) });
+    } else if (request.method === "tools/call") {
+      const name = request.params?.name;
+      const args = request.params?.arguments ?? {};
+      const schema = toolSchemas[name as keyof typeof toolSchemas];
+      if (!schema) {
+        throw new Error(`Unknown tool: ${name}`);
+      }
+      const valErr = validateToolArguments(schema, args);
+      if (valErr) {
+        reply(request.id, undefined, { code: -32602, message: `Invalid params: ${valErr}` });
+        return;
+      }
+      let value: unknown;
+      if (name === "context_capsule") value = mapContextCapsule(await tools.context_capsule(args), "serialize");
+      else if (name === "read_symbol") value = await tools.read_symbol(args);
+      else if (name === "apply_structured_patch") value = await tools.apply_structured_patch(args);
+      else if (name === "rollback_patch") value = await tools.rollback_patch(args);
+      else if (name === "validate_delta") value = await tools.validate_delta(args);
+      else throw new Error(`Unknown tool: ${name}`);
+      reply(request.id, { content: [{ type: "text", text: JSON.stringify(value) }], structuredContent: value });
+    } else reply(request.id, undefined, { code: -32601, message: `Method not found: ${request.method}` });
+  } catch (error) {
+    reply(request.id, undefined, { code: -32000, message: error instanceof Error ? error.message : String(error) });
+  }
+});
