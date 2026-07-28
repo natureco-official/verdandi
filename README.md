@@ -112,7 +112,7 @@ npm install && npm run build && npm test
 Then pick how you want to use it.
 
 <details>
-<summary><b>As an MCP server</b> — codex, claude, opencode, natureco, hermes, openclaw, kimi, glm, antigravity</summary>
+<summary><b>As an MCP server</b> — eight confirmed agents, plus GLM untested (see the table below)</summary>
 
 ```bash
 node bin/verdandi-context-compiler setup codex   # prints the registration command
@@ -129,7 +129,7 @@ Run `npm start` to start the stdio server directly. Wire compatibility is contin
 ./run_with_capsule.sh <agent> <project-root> "Your task"
 ```
 
-Supports `natureco`, `hermes`, `codex`, `claude`, `opencode`, `openclaw`, `kimi`, `glm`. `antigravity` works as an MCP server but has no auto-inject entry yet.
+Supports `natureco`, `hermes`, `codex`, `claude`, `opencode`, `openclaw`, `kimi` and `glm` — every agent in the table below except `antigravity`.
 </details>
 
 <details>
@@ -141,6 +141,33 @@ verdandi-agent "Fix the import order" --project ./project --model gpt-4o --api-k
 
 Environment: `VERDANDI_API_KEY`, `VERDANDI_MODEL`, `VERDANDI_BASE_URL`, `VERDANDI_REQUEST_TIMEOUT_MS`, `VERDANDI_CODEX_MODEL`. Legacy `URDR_*` names still work.
 </details>
+
+---
+
+## Supported agents
+
+Two independent ways to use Verðandi, and not every agent has both. This table is generated from the actual dispatch tables — `AGENTS` in [`bin/verdandi-context-compiler`](bin/verdandi-context-compiler) and the `case` block in [`run_with_capsule.sh`](run_with_capsule.sh) — not from memory.
+
+| Agent | MCP server | Prompt injection | Registration | Config file |
+|---|:--:|:--:|---|---|
+| **Codex CLI** | ✅ | ✅ | one command | `~/.codex/config.toml` |
+| **Claude Code** | ✅ | ✅ | one command | `~/.claude.json` |
+| **NatureCo CLI** | ✅ | ✅ | one command | `~/.config/natureco/config.json` |
+| **Hermes** | ✅ | ✅ | one command | `~/.hermes/config.json` |
+| **OpenCode** | ✅ | ✅ | manual edit | `~/.config/opencode/opencode.jsonc` |
+| **OpenClaw** | ✅ | ✅ | manual edit | `~/.openclaw/openclaw.json` |
+| **Kimi CLI** | ✅ | ✅ | manual edit | `~/.kimi-code/config.toml` |
+| **Antigravity** | ✅ | ❌ | one command | `~/.gemini/antigravity-cli/mcp-config.json` |
+| **GLM CLI** | ⚠️ | ✅ | unverified | — |
+
+**Read the two imperfect rows before you plan around them:**
+
+- **Antigravity** registers as an MCP server but has **no `run_with_capsule.sh` entry**, so the prompt-injection path does not work. Use it through MCP.
+- **GLM** is the reverse and weaker: prompt injection works, but the MCP side is **unverified**. `setup glm` prints a command prefixed *"If GLM supports MCP:"* and there is no config file to detect, so `status` cannot confirm it either. Treat MCP-on-GLM as untested, not as supported.
+
+`setup <agent>` prints the registration command rather than editing your config itself — you see the change before it happens. `status` then reports what is actually registered.
+
+> **Where the −72% was measured:** every benchmark run used **Codex CLI** (`gpt-5.6-sol`, medium effort). The mechanism is agent-independent — the capsule is just a smaller prompt — but the savings have only been *measured* on one agent. Expect the same shape elsewhere; don't expect the same digits.
 
 ---
 

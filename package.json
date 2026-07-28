@@ -18,7 +18,7 @@
     "start": "node dist/src/mcp_server.js",
     "test": "npm run build && node scripts/run_tests.mjs",
     "typecheck": "tsc -p tsconfig.json",
-    "lint": "npm run typecheck && node scripts/lint.mjs",
+    "lint": "npm run typecheck && node scripts/lint.mjs && node scripts/ajan-tablosu-kontrol.mjs",
     "benchmark:retrieval": "node --import tsx benchmark_runs/oracles/retrieval_quality.mjs",
     "benchmark:blind-review": "node benchmark_runs/run_blind_review.mjs",
     "setup:codex": "node bin/verdandi-context-compiler setup codex",

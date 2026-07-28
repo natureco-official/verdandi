@@ -112,7 +112,7 @@ npm install && npm run build && npm test
 Sonra kullanım biçimini seçin.
 
 <details>
-<summary><b>MCP sunucusu olarak</b> — codex, claude, opencode, natureco, hermes, openclaw, kimi, glm, antigravity</summary>
+<summary><b>MCP sunucusu olarak</b> — sekiz doğrulanmış ajan, artı denenmemiş GLM (aşağıdaki tabloya bakın)</summary>
 
 ```bash
 node bin/verdandi-context-compiler setup codex   # kayıt komutunu yazdırır
@@ -129,7 +129,7 @@ Stdio sunucusunu doğrudan başlatmak için `npm start`. Protokol uyumluluğu, s
 ./run_with_capsule.sh <ajan> <proje-kökü> "Göreviniz"
 ```
 
-Desteklenenler: `natureco`, `hermes`, `codex`, `claude`, `opencode`, `openclaw`, `kimi`, `glm`. `antigravity` MCP sunucusu olarak çalışır ama auto-inject girdisi henüz yok.
+Desteklenenler: `natureco`, `hermes`, `codex`, `claude`, `opencode`, `openclaw`, `kimi` ve `glm` — aşağıdaki tablodaki `antigravity` dışındaki her ajan.
 </details>
 
 <details>
@@ -141,6 +141,33 @@ verdandi-agent "Import sıralamasını düzelt" --project ./proje --model gpt-4o
 
 Ortam değişkenleri: `VERDANDI_API_KEY`, `VERDANDI_MODEL`, `VERDANDI_BASE_URL`, `VERDANDI_REQUEST_TIMEOUT_MS`, `VERDANDI_CODEX_MODEL`. Eski `URDR_*` adları da çalışır.
 </details>
+
+---
+
+## Desteklenen ajanlar
+
+Verðandi'yi kullanmanın birbirinden bağımsız iki yolu var ve her ajanda ikisi birden yok. Bu tablo hafızadan değil, gerçek dağıtım tablolarından çıkarıldı: [`bin/verdandi-context-compiler`](bin/verdandi-context-compiler) içindeki `AGENTS` ve [`run_with_capsule.sh`](run_with_capsule.sh) içindeki `case` bloğu.
+
+| Ajan | MCP sunucusu | Prompt enjeksiyonu | Kayıt | Yapılandırma dosyası |
+|---|:--:|:--:|---|---|
+| **Codex CLI** | ✅ | ✅ | tek komut | `~/.codex/config.toml` |
+| **Claude Code** | ✅ | ✅ | tek komut | `~/.claude.json` |
+| **NatureCo CLI** | ✅ | ✅ | tek komut | `~/.config/natureco/config.json` |
+| **Hermes** | ✅ | ✅ | tek komut | `~/.hermes/config.json` |
+| **OpenCode** | ✅ | ✅ | elle düzenleme | `~/.config/opencode/opencode.jsonc` |
+| **OpenClaw** | ✅ | ✅ | elle düzenleme | `~/.openclaw/openclaw.json` |
+| **Kimi CLI** | ✅ | ✅ | elle düzenleme | `~/.kimi-code/config.toml` |
+| **Antigravity** | ✅ | ❌ | tek komut | `~/.gemini/antigravity-cli/mcp-config.json` |
+| **GLM CLI** | ⚠️ | ✅ | doğrulanmadı | — |
+
+**Kusurlu iki satırı planınıza koymadan önce okuyun:**
+
+- **Antigravity** MCP sunucusu olarak kaydoluyor ama **`run_with_capsule.sh` içinde girdisi yok**, yani prompt enjeksiyonu yolu çalışmıyor. MCP üzerinden kullanın.
+- **GLM** tam tersi ve daha zayıf: prompt enjeksiyonu çalışıyor, MCP tarafı **doğrulanmadı**. `setup glm` komutu başına *"If GLM supports MCP:"* yazarak bir öneri basıyor ve tespit edilecek bir yapılandırma dosyası olmadığı için `status` da teyit edemiyor. GLM üzerinde MCP'yi desteklenen değil, denenmemiş sayın.
+
+`setup <ajan>` yapılandırmanızı kendisi düzenlemez, kayıt komutunu **yazdırır** — değişikliği olmadan önce görürsünüz. `status` ise gerçekte neyin kayıtlı olduğunu söyler.
+
+> **−%72 hangi ajanda ölçüldü:** tüm benchmark koşumları **Codex CLI** ile yapıldı (`gpt-5.6-sol`, medium effort). Mekanizma ajandan bağımsız — kapsül sonuçta yalnızca daha küçük bir prompt — ama tasarruf tek bir ajanda *ölçüldü*. Başka ajanda aynı eğilimi bekleyin, aynı rakamları değil.
 
 ---
 
