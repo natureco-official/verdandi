@@ -112,7 +112,7 @@ npm install && npm run build && npm test
 Then pick how you want to use it.
 
 <details>
-<summary><b>As an MCP server</b> — eight confirmed agents, plus GLM untested (see the table below)</summary>
+<summary><b>As an MCP server</b> — seven confirmed agents, plus Antigravity and GLM untested (see the table below)</summary>
 
 ```bash
 node bin/verdandi-context-compiler setup codex   # prints the registration command
@@ -129,7 +129,7 @@ Run `npm start` to start the stdio server directly. Wire compatibility is contin
 ./run_with_capsule.sh <agent> <project-root> "Your task"
 ```
 
-Supports `natureco`, `hermes`, `codex`, `claude`, `opencode`, `openclaw`, `kimi` and `glm` — every agent in the table below except `antigravity`.
+Supports every agent in the table below: `natureco`, `hermes`, `codex`, `claude`, `opencode`, `openclaw`, `kimi`, `glm` and `antigravity`.
 </details>
 
 <details>
@@ -157,13 +157,15 @@ Two independent ways to use Verðandi, and not every agent has both. This table 
 | **OpenCode** | ✅ | ✅ | manual edit | `~/.config/opencode/opencode.jsonc` |
 | **OpenClaw** | ✅ | ✅ | manual edit | `~/.openclaw/openclaw.json` |
 | **Kimi CLI** | ✅ | ✅ | manual edit | `~/.kimi-code/config.toml` |
-| **Antigravity** | ✅ | ❌ | one command | `~/.gemini/antigravity-cli/mcp-config.json` |
+| **Antigravity** | ⚠️ | ✅ | unverified | `~/.gemini/antigravity-cli/mcp-config.json` |
 | **GLM CLI** | ⚠️ | ✅ | unverified | — |
 
 **Read the two imperfect rows before you plan around them:**
 
-- **Antigravity** registers as an MCP server but has **no `run_with_capsule.sh` entry**, so the prompt-injection path does not work. Use it through MCP.
-- **GLM** is the reverse and weaker: prompt injection works, but the MCP side is **unverified**. `setup glm` prints a command prefixed *"If GLM supports MCP:"* and there is no config file to detect, so `status` cannot confirm it either. Treat MCP-on-GLM as untested, not as supported.
+- **Antigravity** now has prompt injection: `run_with_capsule.sh antigravity` calls `agy -p "<prompt>" --dangerously-skip-permissions`. The MCP side is the unverified half — `setup antigravity` prints `antigravity mcp add …`, but the binary is actually `agy`, no official documentation describes an `mcp add` subcommand, and the published config paths (`~/.gemini/config/mcp_config.json`, `.agents/mcp_config.json`) do not match the one this repo declares. Registering by hand is the reliable route until someone verifies it against a real install.
+- **GLM** is unverified on the same side: injection works, MCP does not. `setup glm` prints a command prefixed *"If GLM supports MCP:"* and declares no config file, so `status` cannot confirm it either. Treat MCP-on-GLM as untested, not as supported.
+
+> **Antigravity on Windows:** you need **agy ≥ 1.0.15**. Earlier versions exit 0 and silently throw away stdout when run from a pipe or subprocess — which is exactly how this script invokes them — so a broken run looks like the model simply returned nothing ([antigravity-cli#76](https://github.com/google-antigravity/antigravity-cli/issues/76)). The script checks the version and warns before you lose an afternoon to it.
 
 `setup <agent>` prints the registration command rather than editing your config itself — you see the change before it happens. `status` then reports what is actually registered.
 

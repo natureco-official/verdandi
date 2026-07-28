@@ -30,7 +30,17 @@ const secim = kabuk.slice(kabuk.indexOf('case "$AGENT" in'), kabuk.indexOf("esac
 const enjekte = new Set();
 for (const [, ad] of secim.matchAll(/^ {2}([a-z][a-z0-9-]*)\)$/gm)) enjekte.add(ad);
 
-console.log(`Kaynak: MCP ${mcp.size} ajan, enjeksiyon ${enjekte.size} ajan`);
+// 2b) Kayıt komutunda çekince var mı: "If GLM supports MCP:" gibi.
+const cekinceli = new Set();
+for (const ad of mcp) {
+  const blok = govde.slice(govde.indexOf(`\n  ${ad}: {`));
+  const kesit = blok.slice(0, blok.indexOf("\n  },"));
+  if (/\bIf\b[^"'`]*\bsupports?\b/i.test(kesit)) cekinceli.add(ad);
+}
+
+console.log(
+  `Kaynak: MCP ${mcp.size} ajan (${cekinceli.size} çekinceli), enjeksiyon ${enjekte.size} ajan`,
+);
 bildir(mcp.size > 0, "AGENTS kaydı ayrıştırıldı");
 bildir(enjekte.size > 0, "case blokları ayrıştırıldı");
 
@@ -73,6 +83,13 @@ for (const dosya of ["README.md", "README.tr.md"]) {
     }
     // MCP sütunu: kayıtta olan her ajan ✅ ya da ⚠️ olmalı, ❌ olamaz.
     bildir(satir.mcp !== "❌", `${etiket}: MCP sütunu kayıtla tutarlı (${satir.mcp})`);
+
+    // Kayıt komutu çekince taşıyorsa ("If X supports MCP:") tabloda ✅ olamaz.
+    // Kodun kendisi emin değilken README'nin emin görünmesi, kullanıcının
+    // kurulum sırasında öğreneceği türden bir yalan olur.
+    if (cekinceli.has(ad)) {
+      bildir(satir.mcp === "⚠️", `${etiket}: kayıt komutu çekinceli, tablo ⚠️ olmalı (${satir.mcp})`);
+    }
 
     // Enjeksiyon sütunu case bloğuyla birebir eşleşmeli.
     const beklenen = enjekte.has(ad) ? "✅" : "❌";

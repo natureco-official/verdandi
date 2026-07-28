@@ -112,7 +112,7 @@ npm install && npm run build && npm test
 Sonra kullanım biçimini seçin.
 
 <details>
-<summary><b>MCP sunucusu olarak</b> — sekiz doğrulanmış ajan, artı denenmemiş GLM (aşağıdaki tabloya bakın)</summary>
+<summary><b>MCP sunucusu olarak</b> — yedi doğrulanmış ajan, artı denenmemiş Antigravity ve GLM (aşağıdaki tabloya bakın)</summary>
 
 ```bash
 node bin/verdandi-context-compiler setup codex   # kayıt komutunu yazdırır
@@ -129,7 +129,7 @@ Stdio sunucusunu doğrudan başlatmak için `npm start`. Protokol uyumluluğu, s
 ./run_with_capsule.sh <ajan> <proje-kökü> "Göreviniz"
 ```
 
-Desteklenenler: `natureco`, `hermes`, `codex`, `claude`, `opencode`, `openclaw`, `kimi` ve `glm` — aşağıdaki tablodaki `antigravity` dışındaki her ajan.
+Desteklenenler: aşağıdaki tablodaki her ajan — `natureco`, `hermes`, `codex`, `claude`, `opencode`, `openclaw`, `kimi`, `glm` ve `antigravity`.
 </details>
 
 <details>
@@ -157,13 +157,15 @@ Verðandi'yi kullanmanın birbirinden bağımsız iki yolu var ve her ajanda iki
 | **OpenCode** | ✅ | ✅ | elle düzenleme | `~/.config/opencode/opencode.jsonc` |
 | **OpenClaw** | ✅ | ✅ | elle düzenleme | `~/.openclaw/openclaw.json` |
 | **Kimi CLI** | ✅ | ✅ | elle düzenleme | `~/.kimi-code/config.toml` |
-| **Antigravity** | ✅ | ❌ | tek komut | `~/.gemini/antigravity-cli/mcp-config.json` |
+| **Antigravity** | ⚠️ | ✅ | doğrulanmadı | `~/.gemini/antigravity-cli/mcp-config.json` |
 | **GLM CLI** | ⚠️ | ✅ | doğrulanmadı | — |
 
 **Kusurlu iki satırı planınıza koymadan önce okuyun:**
 
-- **Antigravity** MCP sunucusu olarak kaydoluyor ama **`run_with_capsule.sh` içinde girdisi yok**, yani prompt enjeksiyonu yolu çalışmıyor. MCP üzerinden kullanın.
-- **GLM** tam tersi ve daha zayıf: prompt enjeksiyonu çalışıyor, MCP tarafı **doğrulanmadı**. `setup glm` komutu başına *"If GLM supports MCP:"* yazarak bir öneri basıyor ve tespit edilecek bir yapılandırma dosyası olmadığı için `status` da teyit edemiyor. GLM üzerinde MCP'yi desteklenen değil, denenmemiş sayın.
+- **Antigravity** artık prompt enjeksiyonunu destekliyor: `run_with_capsule.sh antigravity`, `agy -p "<prompt>" --dangerously-skip-permissions` çağırıyor. Doğrulanmamış olan taraf MCP — `setup antigravity` komutu `antigravity mcp add …` basıyor ama ikili dosyanın adı aslında `agy`, hiçbir resmî belge `mcp add` alt komutundan söz etmiyor ve yayınlanan yapılandırma yolları (`~/.gemini/config/mcp_config.json`, `.agents/mcp_config.json`) bu depodakiyle uyuşmuyor. Gerçek bir kurulumda doğrulanana kadar elle kaydetmek güvenilir yol.
+- **GLM** aynı tarafta doğrulanmamış: enjeksiyon çalışıyor, MCP çalışmıyor. `setup glm` komutu başına *"If GLM supports MCP:"* yazarak bir öneri basıyor ve tespit edilecek bir yapılandırma dosyası bildirmiyor, yani `status` da teyit edemiyor. GLM üzerinde MCP'yi desteklenen değil, denenmemiş sayın.
+
+> **Windows'ta Antigravity:** **agy ≥ 1.0.15** gerekiyor. Daha eski sürümler bir borudan ya da alt süreçten çağrıldığında — betiğin yaptığı tam olarak bu — 0 ile çıkıp stdout'u sessizce atıyor, yani bozuk bir koşum "model hiçbir şey döndürmedi" gibi görünüyor ([antigravity-cli#76](https://github.com/google-antigravity/antigravity-cli/issues/76)). Betik sürümü kontrol edip uyarıyor, yarım gününüzü buna vermeyin.
 
 `setup <ajan>` yapılandırmanızı kendisi düzenlemez, kayıt komutunu **yazdırır** — değişikliği olmadan önce görürsünüz. `status` ise gerçekte neyin kayıtlı olduğunu söyler.
 

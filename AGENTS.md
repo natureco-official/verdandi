@@ -78,10 +78,17 @@ If you are running as **Antigravity CLI**:
    ```bash
    antigravity mcp add verdandi-context-compiler node <ABSOLUTE_PATH_TO_CAPSULE>/dist/src/mcp_server.js
    ```
-3. Or use live BPE benchmark script:
+3. Or inject the capsule straight into a one-shot prompt, with no MCP client:
    ```bash
-   node antigravity_benchmark.mjs
+   ./run_with_capsule.sh antigravity /path/to/project "Your task"
    ```
+   This calls `agy -p "<prompt>" --dangerously-skip-permissions`. The binary is
+   `agy`; `antigravity` is tried as a fallback. On Windows you need **agy ≥ 1.0.15** —
+   earlier versions exit 0 and silently discard stdout when run from a pipe or
+   subprocess, so the run looks like an empty model response. The script warns if
+   it detects an older version.
+4. `node antigravity_benchmark.mjs` measures synthetic capsule size against
+   whole-file reads. It does **not** run the agent and is not an integration path.
 
 ---
 

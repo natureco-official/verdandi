@@ -11,18 +11,23 @@ npm install && npm run build
 
 ## Agent-Kullanım Matrisi
 
-| Agent | Auto-Inject | MCP | Komut |
-|-------|-------------|-----|-------|
-| **Antigravity CLI** | ✅ | ✅ | `node antigravity_benchmark.mjs` / MCP |
-| **NatureCo CLI** | ✅ | ✅ | `./run_with_capsule.sh natureco /path "task"` |
-| **OpenClaw** | ✅ | ✅ | `./run_with_capsule.sh openclaw /path "task"` |
-| **Hermes** | ✅ | ✅ | `./run_with_capsule.sh hermes /path "task"` |
-| **Codex CLI** | ✅ | ✅ | `./run_with_capsule.sh codex /path "task"` |
-| **Claude Code** | ✅ | ✅ | `./run_with_capsule.sh claude /path "task"` |
-| **OpenCode** | ✅ | ✅ | `./run_with_capsule.sh opencode /path "task"` |
-| **Kimi CLI** | ✅ | ⚠️ | `./run_with_capsule.sh kimi /path "task"` |
-| **GLM CLI** | ✅ | ⚠️ | `./run_with_capsule.sh glm /path "task"` |
-| **Verðandi Agent** | — | — | `verdandi-agent "task" --project /path --model gpt-4o` |
+> **Hangi ajanın neyi desteklediği tek bir yerde:** [README'deki destek tablosu](README.md#supported-agents).
+> Burası yalnızca komutları listeler. Durum sütunları eskiden burada da vardı ve kaydı: bu dosya
+> Antigravity için Auto-Inject'i ✅ gösteriyordu, üstelik verdiği komut ajanı hiç çalıştırmayan bir
+> token sayma betiğiydi. Aynı bilgiyi iki yerde tutmak onu ikinci yerde eskitiyor.
+
+| Agent | Komut |
+|-------|-------|
+| **Antigravity CLI** | `./run_with_capsule.sh antigravity /path "task"` |
+| **NatureCo CLI** | `./run_with_capsule.sh natureco /path "task"` |
+| **OpenClaw** | `./run_with_capsule.sh openclaw /path "task"` |
+| **Hermes** | `./run_with_capsule.sh hermes /path "task"` |
+| **Codex CLI** | `./run_with_capsule.sh codex /path "task"` |
+| **Claude Code** | `./run_with_capsule.sh claude /path "task"` |
+| **OpenCode** | `./run_with_capsule.sh opencode /path "task"` |
+| **Kimi CLI** | `./run_with_capsule.sh kimi /path "task"` |
+| **GLM CLI** | `./run_with_capsule.sh glm /path "task"` |
+| **Verðandi Agent** | `verdandi-agent "task" --project /path --model gpt-4o` |
 
 ## 3 Mod
 

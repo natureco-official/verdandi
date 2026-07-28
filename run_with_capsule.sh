@@ -55,9 +55,42 @@ case "$AGENT" in
   glm)
     (cd "$PROJECT_ROOT" && glm -p "$INJECTED_PROMPT")
     ;;
+  antigravity)
+    # The binary is `agy`; `antigravity` is accepted as a fallback for installs
+    # that alias it. The agent key stays `antigravity` to match the MCP registry.
+    AGY_BIN=""
+    for candidate in agy antigravity; do
+      if command -v "$candidate" >/dev/null 2>&1; then
+        AGY_BIN="$candidate"
+        break
+      fi
+    done
+    if [ -z "$AGY_BIN" ]; then
+      echo "ERROR: neither 'agy' nor 'antigravity' found on PATH." >&2
+      exit 1
+    fi
+
+    # Before 1.0.15, print mode silently discarded stdout on Windows when run
+    # from a pipe or subprocess — which is exactly how this script calls it.
+    # It exits 0 with no output, so without this guard the failure looks like
+    # the model returned nothing. See google-antigravity/antigravity-cli#76.
+    AGY_VERSION="$("$AGY_BIN" --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)"
+    if [ -n "$AGY_VERSION" ]; then
+      AGY_MAJOR="${AGY_VERSION%%.*}"
+      AGY_REST="${AGY_VERSION#*.}"
+      AGY_MINOR="${AGY_REST%%.*}"
+      AGY_PATCH="${AGY_REST#*.}"
+      if [ "$AGY_MAJOR" -eq 1 ] && [ "$AGY_MINOR" -eq 0 ] && [ "$AGY_PATCH" -lt 15 ]; then
+        echo "WARNING: agy $AGY_VERSION drops piped stdout on Windows (fixed in 1.0.15)." >&2
+        echo "         If you see no output below, upgrade rather than debugging the capsule." >&2
+      fi
+    fi
+
+    (cd "$PROJECT_ROOT" && "$AGY_BIN" -p "$INJECTED_PROMPT" --dangerously-skip-permissions)
+    ;;
   *)
     echo "Unknown agent: $AGENT" >&2
-    echo "Supported: natureco, hermes, codex, claude, opencode, openclaw, kimi, glm" >&2
+    echo "Supported: natureco, hermes, codex, claude, opencode, openclaw, kimi, glm, antigravity" >&2
     exit 1
     ;;
 esac
