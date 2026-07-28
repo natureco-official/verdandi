@@ -56,5 +56,13 @@
     "@types/node": "^24.0.0",
     "js-tiktoken": "^1.0.21",
     "tsx": "^4.19.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/natureco-official/verdandi.git"
+  },
+  "homepage": "https://github.com/natureco-official/verdandi#readme",
+  "bugs": {
+    "url": "https://github.com/natureco-official/verdandi/issues"
   }
 }
