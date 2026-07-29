@@ -127,6 +127,49 @@ function isBuildOutputDir(name: string): boolean {
   return SKIP_DIRS.has(name) || BUILD_OUTPUT_DIR_PATTERN.test(name);
 }
 
+/**
+ * Minified bundles, detected by shape rather than by path.
+ *
+ * Directory names cannot catch every case. Capacitor copies the web build into
+ * `android/app/src/main/assets/public/` and `ios/App/App/public/`; every
+ * segment there is an ordinary source-directory name, so any name rule broad
+ * enough to exclude it would also exclude real source. Vendored bundles like
+ * `extension/lib/xterm.js` have the same problem.
+ *
+ * Measured across eight local projects (29 July 2026): of 2084 indexed files,
+ * 25 were minified — 4.4 MB, 26.4% of one project's index — and every one was
+ * build output or a vendored library. No real source file was caught.
+ *
+ * The threshold sits in a wide empty gap: the longest-lined real source file
+ * averaged 216 characters per line, the least-minified bundle 2827. Only the
+ * first chunk is read, so this costs one bounded read on large files and
+ * nothing on small ones.
+ */
+const MINIFIED_MIN_BYTES = 20_000;
+const MINIFIED_SAMPLE_BYTES = 64 * 1024;
+const MINIFIED_AVG_LINE_LENGTH = 400;
+
+async function isMinifiedBundle(absolute: string, size: number): Promise<boolean> {
+  if (size < MINIFIED_MIN_BYTES) return false;
+  let handle;
+  try {
+    handle = await fs.open(absolute, "r");
+    const buffer = Buffer.alloc(Math.min(MINIFIED_SAMPLE_BYTES, size));
+    const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
+    if (bytesRead === 0) return false;
+    const sample = buffer.subarray(0, bytesRead).toString("utf8");
+    let newlines = 0;
+    for (let i = 0; i < sample.length; i++) if (sample.charCodeAt(i) === 10) newlines++;
+    return sample.length / (newlines + 1) > MINIFIED_AVG_LINE_LENGTH;
+  } catch {
+    // Unreadable files are handled by the caller's own error path; never let
+    // this check be the reason a file is dropped.
+    return false;
+  } finally {
+    await handle?.close().catch(() => {});
+  }
+}
+
 /** Common English/coding stopwords that add noise to retrieval. */
 const STOPWORDS = new Set([
   "the", "and", "for", "with", "that", "this", "from", "into", "when", "where",
@@ -410,8 +453,10 @@ async function walk(
     } else if (entry.isFile() && (SOURCE_EXTENSIONS.has(path.extname(entry.name)) || CONFIG_FILE_PATTERN.test(entry.name))) {
       const absolute = path.join(current, entry.name);
       try {
-        if ((await fs.stat(absolute)).size <= MAX_SOURCE_FILE_BYTES) result.files.push(absolute);
-        else result.truncated = true;
+        const size = (await fs.stat(absolute)).size;
+        if (size > MAX_SOURCE_FILE_BYTES) result.truncated = true;
+        else if (await isMinifiedBundle(absolute, size)) result.truncated = true;
+        else result.files.push(absolute);
       } catch (error) {
         const code = (error as NodeJS.ErrnoException).code;
         if (code !== "EACCES" && code !== "EPERM" && code !== "ENOENT") throw error;

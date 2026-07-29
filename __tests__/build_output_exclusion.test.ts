@@ -54,6 +54,14 @@ async function projeKur(): Promise<string> {
   await yaz("target/debug/terminalTemasi.js", "export function terminalTemasiUygula(a){return a}\n");
   await yaz("build_ssr/terminalTemasi.js", "export function terminalTemasiUygula(a){return a}\n");
 
+  // Capacitor'ın mobil kabuklara kopyaladığı web derlemesi. Yoldaki her
+  // parça (android, app, src, main, assets, public) sıradan bir kaynak dizin
+  // adı — ada dayalı hiçbir kural bunu güvenle eleyemez. Tek ayırt edici
+  // özellik dosyanın ŞEKLİ: tek satıra sıkıştırılmış paket.
+  const paket =
+    `export function paketlenmisMobilSembol(a,b){${"return a+b;".repeat(4000)}}\n`;
+  await yaz("android/app/src/main/assets/public/assets/index-B1c2D3.js", paket);
+
   return kok;
 }
 
@@ -76,6 +84,25 @@ describe("derleme çıktısı dışlama", () => {
     assert.ok(
       sonuc.ambiguity.some((s: string) => /not found/i.test(s)),
       `bulunamama gerekçesi bekleniyordu, gelen: ${JSON.stringify(sonuc.ambiguity)}`,
+    );
+  });
+
+  // Ada dayalı kuralın yetişemediği durum: sıradan adlı dizinlerde duran
+  // küçültülmüş paket. Ölçüm (29 Temmuz 2026, natureco_improvements):
+  // 4,4 MB / indeksin %26,4'ü, ve indeksleme süresi 12675 ms → 7575 ms.
+  it("sıradan adlı dizindeki küçültülmüş paketi indekslemez", async () => {
+    const kok = await projeKur();
+    const derleyici = new TypeScriptContextCompiler();
+
+    const sonuc = await derleyici.read_symbol({
+      projectRoot: kok,
+      symbol: "paketlenmisMobilSembol",
+    });
+
+    assert.equal(
+      sonuc.evidence.length,
+      0,
+      "küçültülmüş paket indekslenmiş — yol tabanlı kural bunu yakalayamaz, şekil kontrolü yakalamalıydı",
     );
   });
 
