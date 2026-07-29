@@ -88,6 +88,10 @@ const SKIP_DIRS = new Set([
   ".git",
   "dist",
   "out",
+  // Rust/Maven/Gradle build output. Its .json files mostly fail
+  // CONFIG_FILE_PATTERN, but a Tauri project still parks thousands of files
+  // here and walking them costs index time for nothing.
+  "target",
   "coverage",
   ".turbo",
   "build",
@@ -103,6 +107,25 @@ const SKIP_DIRS = new Set([
   ".svelte-kit",
   ".output",
 ]);
+
+/**
+ * Build output whose directory name carries a suffix: `dist-tauri`, `dist_web`,
+ * `build-ssr`, `out-tsc`, `target-wasm`.
+ *
+ * SKIP_DIRS only matched exact names, so a Tauri project's `dist-tauri/` was
+ * indexed as if it were source: 7 of 32 indexed files and 77% of indexed bytes
+ * were minified bundles, and five of six sample queries handed the agent a
+ * bundle instead of the source it was compiled from.
+ *
+ * The separator is required on purpose. Matching a bare `dist` prefix would
+ * also swallow `distributed/`, `outbox/`, `building/` and `targeting/`, which
+ * are ordinary source directories.
+ */
+const BUILD_OUTPUT_DIR_PATTERN = /^(dist|build|out|target)[-_.]/;
+
+function isBuildOutputDir(name: string): boolean {
+  return SKIP_DIRS.has(name) || BUILD_OUTPUT_DIR_PATTERN.test(name);
+}
 
 /** Common English/coding stopwords that add noise to retrieval. */
 const STOPWORDS = new Set([
@@ -381,7 +404,7 @@ async function walk(
     }
     if (entry.name.startsWith(".") && !entry.name.startsWith(".eslintrc")) continue;
     if (entry.isDirectory()) {
-      if (!SKIP_DIRS.has(entry.name)) {
+      if (!isBuildOutputDir(entry.name)) {
         await walk(root, path.join(current, entry.name), result);
       }
     } else if (entry.isFile() && (SOURCE_EXTENSIONS.has(path.extname(entry.name)) || CONFIG_FILE_PATTERN.test(entry.name))) {
@@ -459,8 +482,11 @@ export function pathPrior(relativeFile: string, query: string[]): number {
   if (!query.some(term => ["benchmark", "fixture", "demo", "example"].includes(term)) &&
       /(^|\/)[^/]*(benchmark|measurement|smoke|fixture|demo|example)[^/]*\.[^.]+$/.test(file)) score -= 36;
   if (/(^|\/)[^/]*_(test|spec)\.[^.]+$/.test(file)) score -= 2.5;
-  // Safety net: Penalize build output files if SKIP_DIRS is overridden or custom paths passed
-  if (/(^|\/)(dist|build|out)\//.test(file)) score -= 5;
+  // Safety net: Penalize build output files if SKIP_DIRS is overridden or custom paths passed.
+  // The suffix form (dist-tauri/, out-tsc/) has to match here too — it was the
+  // gap that let minified bundles score like source. Kept in step with
+  // BUILD_OUTPUT_DIR_PATTERN: base word, then either a slash or a separator.
+  if (/(^|\/)(dist|build|out|target)([-_.][^/]*)?\//.test(file)) score -= 5;
   // Generated protocol mirrors are useful dependencies, but are rarely the
   // implementation site for a runtime server/client behaviour change.
   if (query.some(term => ["server", "client", "handler", "request", "runtime"].includes(term)) &&
