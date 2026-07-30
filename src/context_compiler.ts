@@ -835,7 +835,29 @@ export function scoreSymbolAgainstQuery(
   // A path/kind prior may reorder genuine lexical matches, but must never turn
   // every production symbol into a match by itself.
   if (lexicalScore <= 0) return 0;
-  return lexicalScore + conceptCoverageBoost + pathPrior(symbol.file, query) + kindBoost;
+  const toplam = lexicalScore + conceptCoverageBoost + pathPrior(symbol.file, query) + kindBoost;
+
+  // Test dosyası cezası ORANSAL olmalı, toplamsal değil.
+  //
+  // `pathPrior` içindeki -2.5, `conceptCoverageBoost`un 40 puana kadar
+  // çıkabildiği bir toplamda kayboluyordu. Ölçüldü (30 Temmuz 2026,
+  // natureco_improvements): "mesaj gönderme rate limit" görevinde doğru dosya
+  // `src/utils/rateLimit.ts` BULUNUYOR ama `memoryLeak.preservation.test.ts`
+  // dosyasına 0.9268'e 0.9106 ile kaybediyordu — %1.6 fark. Sabit bir ceza,
+  // skorların büyüklüğü değiştikçe anlamını yitiriyor; oransal olan yitirmez.
+  //
+  // Testi yasaklamıyoruz: niyet test olduğunda ceza yok (mevcut davranış), ve
+  // ceza dosyayı listeden atmıyor, yalnızca üretim kodunun arkasına koyuyor.
+  // Bir testin kendisi doğru cevapsa lexical üstünlüğü bunu yine taşır.
+  const testDosyasi = /(^|\/)(test|tests|__tests__|spec|specs)\//.test(symbol.file.toLowerCase())
+    || /\.(test|spec)\.(t|j)sx?$/.test(symbol.file.toLowerCase());
+  const testNiyeti = query.some(term =>
+    ["test", "spec", "check", "integration", "regression"].includes(term));
+  // 0.75 ölçümle seçildi, tek örneğe uydurularak değil: 16 gerçek görev
+  // üzerinde ilk sırada test dosyası çıkma oranı %44'ten %38'e düşüyor ve
+  // 0.65/0.55 hiçbir ek kazanç vermiyor. Daha sert bir ceza, testin gerçekten
+  // doğru cevap olduğu durumları bedava gömme riski demek olurdu.
+  return testDosyasi && !testNiyeti ? toplam * 0.75 : toplam;
 }
 
 function publicRef(symbol: IndexedSymbol): SymbolReference {
