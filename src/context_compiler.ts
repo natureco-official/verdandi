@@ -157,10 +157,34 @@ async function isMinifiedBundle(absolute: string, size: number): Promise<boolean
     const buffer = Buffer.alloc(Math.min(MINIFIED_SAMPLE_BYTES, size));
     const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
     if (bytesRead === 0) return false;
-    const sample = buffer.subarray(0, bytesRead).toString("utf8");
-    let newlines = 0;
-    for (let i = 0; i < sample.length; i++) if (sample.charCodeAt(i) === 10) newlines++;
-    return sample.length / (newlines + 1) > MINIFIED_AVG_LINE_LENGTH;
+    const ortalamaSatir = (metin: string): number => {
+      let newlines = 0;
+      for (let i = 0; i < metin.length; i++) if (metin.charCodeAt(i) === 10) newlines++;
+      return metin.length / (newlines + 1);
+    };
+
+    // Yalnızca dosyanın BAŞI örnekleniyordu ve paketleyiciler tam oraya lisans
+    // başlığı koyuyor: kısa satırlardan oluşan bir blok ortalamayı düşürüp
+    // dedektörü kör ediyor.
+    //
+    // Ölçüldü (30 Temmuz 2026, natureco_improvements): 683 KB'lık Capacitor
+    // paketi `firebase-CuxlGNoM.js` Apache lisans metniyle açıldığı için
+    // kaynak sanılıyor ve "forum gönderisi silme yetkisi" görevine dönen ilk
+    // dosya oluyordu. Bir paketin en temsili yeri ortasıdır; iki örnekten
+    // hangisi paket gibi görünüyorsa o karar verir.
+    if (ortalamaSatir(buffer.subarray(0, bytesRead).toString("utf8")) > MINIFIED_AVG_LINE_LENGTH) {
+      return true;
+    }
+    if (size <= MINIFIED_SAMPLE_BYTES) return false;
+    const ortaBuffer = Buffer.alloc(Math.min(MINIFIED_SAMPLE_BYTES, size));
+    const orta = await handle.read(
+      ortaBuffer,
+      0,
+      ortaBuffer.length,
+      Math.max(0, Math.floor(size / 2) - Math.floor(ortaBuffer.length / 2)),
+    );
+    if (orta.bytesRead === 0) return false;
+    return ortalamaSatir(ortaBuffer.subarray(0, orta.bytesRead).toString("utf8")) > MINIFIED_AVG_LINE_LENGTH;
   } catch {
     // Unreadable files are handled by the caller's own error path; never let
     // this check be the reason a file is dropped.
@@ -451,6 +475,31 @@ function isTopLevelOrMember(node: ts.Node): boolean {
 
 type WalkResult = { files: string[]; truncated: boolean };
 
+/**
+ * Kendi `.git`'i olan alt dizin AYRI BİR DEPODUR; bu projenin parçası değil.
+ *
+ * Ölçüldü (30 Temmuz 2026, natureco_improvements — 293 dosyalık en büyük
+ * proje): kök dizinde ayrı bir depo olarak duran `natureco-cli/` indeksleniyor
+ * ve aday dosyaların **%29'unu** dolduruyordu. "websocket yeniden bağlanma"
+ * görevine dönen ilk dosya `natureco-cli/test/utils/memory-lint.test.js` idi —
+ * yani başka bir ürünün test dosyası.
+ *
+ * Üst depo onun içeriğini zaten takip etmiyor (tek bir gitlink girdisi görür).
+ * Aynı kural submodule'leri ve elle klonlanmış bağımlılıkları da kapsar.
+ *
+ * Kökün KENDİSİ elbette muaf: bir depoyu indekslemek istiyoruz, onun `.git`'i
+ * olması normal.
+ */
+async function isNestedRepository(root: string, directory: string): Promise<boolean> {
+  if (path.resolve(directory) === path.resolve(root)) return false;
+  try {
+    await fs.stat(path.join(directory, ".git"));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function walk(
   root: string,
   current = root,
@@ -474,8 +523,9 @@ async function walk(
     }
     if (entry.name.startsWith(".") && !entry.name.startsWith(".eslintrc")) continue;
     if (entry.isDirectory()) {
-      if (!isBuildOutputDir(entry.name)) {
-        await walk(root, path.join(current, entry.name), result);
+      const mutlak = path.join(current, entry.name);
+      if (!isBuildOutputDir(entry.name) && !(await isNestedRepository(root, mutlak))) {
+        await walk(root, mutlak, result);
       }
     } else if (entry.isFile() && (SOURCE_EXTENSIONS.has(path.extname(entry.name)) || CONFIG_FILE_PATTERN.test(entry.name))) {
       const absolute = path.join(current, entry.name);
