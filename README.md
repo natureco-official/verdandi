@@ -148,7 +148,7 @@ Environment: `VERDANDI_API_KEY`, `VERDANDI_MODEL`, `VERDANDI_BASE_URL`, `VERDAND
 
 Two independent ways to use Verðandi, and not every agent has both. This table is generated from the actual dispatch tables — `AGENTS` in [`bin/verdandi-context-compiler`](bin/verdandi-context-compiler) and the `case` block in [`run_with_capsule.sh`](run_with_capsule.sh) — not from memory.
 
-| Agent | MCP server | Prompt injection | Registration | Config file |
+| Agent | MCP server | Capsule injection | Registration | Config file |
 |---|:--:|:--:|---|---|
 | **Codex CLI** | ✅ | ✅ | one command | `~/.codex/config.toml` |
 | **Claude Code** | ✅ | ✅ | one command | `~/.claude.json` |
@@ -160,10 +160,35 @@ Two independent ways to use Verðandi, and not every agent has both. This table 
 | **Antigravity** | ⚠️ | ✅ | unverified | `~/.gemini/antigravity-cli/mcp-config.json` |
 | **GLM CLI** | ⚠️ | ✅ | unverified | — |
 
+> **The column is named "capsule injection", not "prompt injection", on purpose.** It means Verðandi
+> writes the capsule into the agent's prompt — a feature, not the security term. The security
+> question is below.
+
+### Running this on code you do not trust
+
+Verðandi's whole job is to put **raw source from the indexed project** into an agent's prompt. If
+that project came from somewhere you do not control — a vendored dependency, a pull request, a
+comment in a file — then text inside it reaches the agent verbatim, and an agent cannot tell it
+apart from your instructions by construction.
+
+Two things follow:
+
+- `run_with_capsule.sh` no longer passes `--yolo`, `--permission-mode auto` or
+  `--dangerously-skip-permissions` by default. Full autonomy is now an explicit choice:
+  `VERDANDI_YOLO=1 ./run_with_capsule.sh claude <root> "<task>"`. Without it the agents keep their
+  normal permission behaviour, which in a non-interactive run can mean a refused tool call — an
+  unfinished task beats one nobody was asked about.
+- The embedded source is framed as data, inside delimiters, with an explicit line telling the agent
+  that only the `# Görev` section is an instruction.
+
+Neither is a guarantee. Framing helps a model draw the line; it does not force it to. The load is
+carried by the default: on an untrusted codebase, run without `VERDANDI_YOLO` so that anything the
+agent is talked into still has to get past its own permission gate.
+
 **Read the two imperfect rows before you plan around them:**
 
-- **Antigravity** now has prompt injection: `run_with_capsule.sh antigravity` calls `agy -p "<prompt>" --dangerously-skip-permissions`. The MCP side is the unverified half — `setup antigravity` prints `antigravity mcp add …`, but the binary is actually `agy`, no official documentation describes an `mcp add` subcommand, and the published config paths (`~/.gemini/config/mcp_config.json`, `.agents/mcp_config.json`) do not match the one this repo declares. Registering by hand is the reliable route until someone verifies it against a real install.
-- **GLM** is unverified on the same side: injection works, MCP does not. `setup glm` prints a command prefixed *"If GLM supports MCP:"* and declares no config file, so `status` cannot confirm it either. Treat MCP-on-GLM as untested, not as supported.
+- **Antigravity** now has capsule injection: `run_with_capsule.sh antigravity` calls `agy -p "<prompt>"`, adding `--dangerously-skip-permissions` only under `VERDANDI_YOLO=1`. The MCP side is the unverified half — `setup antigravity` prints `antigravity mcp add …`, but the binary is actually `agy`, no official documentation describes an `mcp add` subcommand, and the published config paths (`~/.gemini/config/mcp_config.json`, `.agents/mcp_config.json`) do not match the one this repo declares. Registering by hand is the reliable route until someone verifies it against a real install.
+- **GLM** is unverified on the same side: capsule injection works, MCP does not. `setup glm` prints a command prefixed *"If GLM supports MCP:"* and declares no config file, so `status` cannot confirm it either. Treat MCP-on-GLM as untested, not as supported.
 
 > **Antigravity on Windows:** you need **agy ≥ 1.0.15**. Earlier versions exit 0 and silently throw away stdout when run from a pipe or subprocess — which is exactly how this script invokes them — so a broken run looks like the model simply returned nothing ([antigravity-cli#76](https://github.com/google-antigravity/antigravity-cli/issues/76)). The script checks the version and warns before you lose an afternoon to it.
 

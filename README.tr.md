@@ -148,7 +148,7 @@ Ortam değişkenleri: `VERDANDI_API_KEY`, `VERDANDI_MODEL`, `VERDANDI_BASE_URL`,
 
 Verðandi'yi kullanmanın birbirinden bağımsız iki yolu var ve her ajanda ikisi birden yok. Bu tablo hafızadan değil, gerçek dağıtım tablolarından çıkarıldı: [`bin/verdandi-context-compiler`](bin/verdandi-context-compiler) içindeki `AGENTS` ve [`run_with_capsule.sh`](run_with_capsule.sh) içindeki `case` bloğu.
 
-| Ajan | MCP sunucusu | Prompt enjeksiyonu | Kayıt | Yapılandırma dosyası |
+| Ajan | MCP sunucusu | Kapsül enjeksiyonu | Kayıt | Yapılandırma dosyası |
 |---|:--:|:--:|---|---|
 | **Codex CLI** | ✅ | ✅ | tek komut | `~/.codex/config.toml` |
 | **Claude Code** | ✅ | ✅ | tek komut | `~/.claude.json` |
@@ -160,10 +160,34 @@ Verðandi'yi kullanmanın birbirinden bağımsız iki yolu var ve her ajanda iki
 | **Antigravity** | ⚠️ | ✅ | doğrulanmadı | `~/.gemini/antigravity-cli/mcp-config.json` |
 | **GLM CLI** | ⚠️ | ✅ | doğrulanmadı | — |
 
+> **Sütunun adı bilerek "kapsül enjeksiyonu", "prompt enjeksiyonu" değil.** Anlamı, Verðandi'nin
+> kapsülü ajanın prompt'una yazması — bir yetenek, güvenlik terimi değil. Güvenlik sorusu aşağıda.
+
+### Güvenmediğiniz kodda çalıştırmak
+
+Verðandi'nin işi, indekslenen projenin **ham kaynağını** bir ajanın prompt'una koymaktır. O proje
+sizin denetiminizde olmayan bir yerden geldiyse — çekilmiş bir bağımlılık, bir PR, bir dosyadaki
+yorum satırı — içindeki metin ajana kelimesi kelimesine ulaşır ve ajan onu yapısı gereği sizin
+talimatınızdan ayıramaz.
+
+Bundan iki şey çıkıyor:
+
+- `run_with_capsule.sh` artık `--yolo`, `--permission-mode auto` ve
+  `--dangerously-skip-permissions` bayraklarını varsayılan olarak geçmiyor. Tam yetki açık bir
+  tercih: `VERDANDI_YOLO=1 ./run_with_capsule.sh claude <kök> "<görev>"`. Bayraksız çalıştırmada
+  ajanlar kendi normal izin davranışlarını uygular; etkileşimsiz kipte bu, reddedilen bir araç
+  çağrısı demek olabilir — yarıda kalan görev, kimseye sorulmadan yapılan görevden iyidir.
+- Gömülü kaynak veri olarak çerçeveleniyor: sınırlayıcılar içinde ve yalnızca `# Görev` bölümünün
+  talimat olduğunu söyleyen açık bir cümleyle.
+
+İkisi de garanti değil. Çerçeveleme modelin ayrımı yapmasına yardım eder, yapmaya zorlamaz. Yükü
+taşıyan şey varsayılan: güvenilmeyen bir kod tabanında `VERDANDI_YOLO` olmadan çalıştırın ki ajanın
+ikna edildiği her şey yine de kendi izin kapısından geçmek zorunda kalsın.
+
 **Kusurlu iki satırı planınıza koymadan önce okuyun:**
 
-- **Antigravity** artık prompt enjeksiyonunu destekliyor: `run_with_capsule.sh antigravity`, `agy -p "<prompt>" --dangerously-skip-permissions` çağırıyor. Doğrulanmamış olan taraf MCP — `setup antigravity` komutu `antigravity mcp add …` basıyor ama ikili dosyanın adı aslında `agy`, hiçbir resmî belge `mcp add` alt komutundan söz etmiyor ve yayınlanan yapılandırma yolları (`~/.gemini/config/mcp_config.json`, `.agents/mcp_config.json`) bu depodakiyle uyuşmuyor. Gerçek bir kurulumda doğrulanana kadar elle kaydetmek güvenilir yol.
-- **GLM** aynı tarafta doğrulanmamış: enjeksiyon çalışıyor, MCP çalışmıyor. `setup glm` komutu başına *"If GLM supports MCP:"* yazarak bir öneri basıyor ve tespit edilecek bir yapılandırma dosyası bildirmiyor, yani `status` da teyit edemiyor. GLM üzerinde MCP'yi desteklenen değil, denenmemiş sayın.
+- **Antigravity** artık kapsül enjeksiyonunu destekliyor: `run_with_capsule.sh antigravity`, `agy -p "<prompt>"` çağırıyor; `--dangerously-skip-permissions` yalnızca `VERDANDI_YOLO=1` ile ekleniyor. Doğrulanmamış olan taraf MCP — `setup antigravity` komutu `antigravity mcp add …` basıyor ama ikili dosyanın adı aslında `agy`, hiçbir resmî belge `mcp add` alt komutundan söz etmiyor ve yayınlanan yapılandırma yolları (`~/.gemini/config/mcp_config.json`, `.agents/mcp_config.json`) bu depodakiyle uyuşmuyor. Gerçek bir kurulumda doğrulanana kadar elle kaydetmek güvenilir yol.
+- **GLM** aynı tarafta doğrulanmamış: kapsül enjeksiyonu çalışıyor, MCP çalışmıyor. `setup glm` komutu başına *"If GLM supports MCP:"* yazarak bir öneri basıyor ve tespit edilecek bir yapılandırma dosyası bildirmiyor, yani `status` da teyit edemiyor. GLM üzerinde MCP'yi desteklenen değil, denenmemiş sayın.
 
 > **Windows'ta Antigravity:** **agy ≥ 1.0.15** gerekiyor. Daha eski sürümler bir borudan ya da alt süreçten çağrıldığında — betiğin yaptığı tam olarak bu — 0 ile çıkıp stdout'u sessizce atıyor, yani bozuk bir koşum "model hiçbir şey döndürmedi" gibi görünüyor ([antigravity-cli#76](https://github.com/google-antigravity/antigravity-cli/issues/76)). Betik sürümü kontrol edip uyarıyor, yarım gününüzü buna vermeyin.
 

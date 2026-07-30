@@ -82,7 +82,10 @@ If you are running as **Antigravity CLI**:
    ```bash
    ./run_with_capsule.sh antigravity /path/to/project "Your task"
    ```
-   This calls `agy -p "<prompt>" --dangerously-skip-permissions`. The binary is
+   This calls `agy -p "<prompt>"`. `--dangerously-skip-permissions` is added only
+   when you set `VERDANDI_YOLO=1`, because the prompt carries raw source from the
+   indexed project and that source is not always yours — see "Running this on code
+   you do not trust" in the README. The binary is
    `agy`; `antigravity` is tried as a fallback. On Windows you need **agy ≥ 1.0.15** —
    earlier versions exit 0 and silently discard stdout when run from a pipe or
    subprocess, so the run looks like an empty model response. The script warns if

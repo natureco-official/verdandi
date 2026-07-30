@@ -12,6 +12,39 @@ TASK="${3:-Analyze this codebase}"
 
 CAPSULE_DIR="$(cd "$(dirname "$0")" && pwd)"
 
+# İzin kapılarını atlayan bayraklar VARSAYILAN DEĞİL.
+#
+# Bu betiğin işi, indekslenen kod tabanının HAM KAYNAĞINI bir ajanın
+# prompt'una koymaktır. O kaynak güvenilmeyen bir depodan geliyorsa (çekilmiş
+# bir bağımlılık, bir PR, bir yorum satırı), içindeki metin ajana talimat
+# olarak ulaşabilir. Bunu `--yolo` / `--permission-mode auto` /
+# `--dangerously-skip-permissions` ile birleştirmek, o talimatın onay
+# sorulmadan çalışması demektir.
+#
+# Kendi deponuzda bu bir sorun değil; bu yüzden yasaklamıyoruz, VARSAYILAN
+# olmaktan çıkarıyoruz. Tam yetki artık bilinçli bir tercih:
+#
+#   VERDANDI_YOLO=1 ./run_with_capsule.sh claude /path/to/project "..."
+#
+# Bayraklar olmadan ajanlar kendi normal izin davranışlarını uygular; bir araç
+# çağrısı onay isteyip etkileşimsiz kipte reddedilebilir. Yarıda kalan bir
+# görev, sormadan çalıştırılmış bir görevden iyidir.
+if [ "${VERDANDI_YOLO:-0}" = "1" ]; then
+  HERMES_IZIN=(--yolo)
+  CLAUDE_IZIN=(--permission-mode auto)
+  AGY_IZIN=(--dangerously-skip-permissions)
+else
+  HERMES_IZIN=()
+  CLAUDE_IZIN=()
+  AGY_IZIN=()
+fi
+
+if [ "${VERDANDI_YOLO:-0}" = "1" ]; then
+  echo "⚠  VERDANDI_YOLO=1 — ajan izin kapıları KAPALI çalıştırılacak." >&2
+  echo "   Yalnızca güvendiğiniz kod tabanlarında kullanın: indekslenen kaynak" >&2
+  echo "   ajanın prompt'una giriyor ve oradaki metin talimat gibi okunabilir." >&2
+fi
+
 if [ ! -f "$CAPSULE_DIR/dist/src/mcp_server.js" ]; then
   echo "ERROR: dist/src/mcp_server.js missing. Run: npm run build" >&2
   exit 1
@@ -34,13 +67,13 @@ case "$AGENT" in
     natureco code --dir "$PROJECT_ROOT" -p "$INJECTED_PROMPT"
     ;;
   hermes)
-    (cd "$PROJECT_ROOT" && hermes chat -q "$INJECTED_PROMPT" --yolo --cli)
+    (cd "$PROJECT_ROOT" && hermes chat -q "$INJECTED_PROMPT" ${HERMES_IZIN[@]+"${HERMES_IZIN[@]}"} --cli)
     ;;
   codex)
     codex exec --ephemeral --model "${VERDANDI_CODEX_MODEL:-${URDR_CODEX_MODEL:-gpt-5.6}}" --cd "$PROJECT_ROOT" "$INJECTED_PROMPT"
     ;;
   claude)
-    (cd "$PROJECT_ROOT" && claude -p "$INJECTED_PROMPT" --permission-mode auto)
+    (cd "$PROJECT_ROOT" && claude -p "$INJECTED_PROMPT" ${CLAUDE_IZIN[@]+"${CLAUDE_IZIN[@]}"})
     ;;
   opencode)
     (cd "$PROJECT_ROOT" && opencode run "$INJECTED_PROMPT")
@@ -86,7 +119,7 @@ case "$AGENT" in
       fi
     fi
 
-    (cd "$PROJECT_ROOT" && "$AGY_BIN" -p "$INJECTED_PROMPT" --dangerously-skip-permissions)
+    (cd "$PROJECT_ROOT" && "$AGY_BIN" -p "$INJECTED_PROMPT" ${AGY_IZIN[@]+"${AGY_IZIN[@]}"})
     ;;
   *)
     echo "Unknown agent: $AGENT" >&2
