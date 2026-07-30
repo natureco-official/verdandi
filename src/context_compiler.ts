@@ -1018,7 +1018,7 @@ export function scoreSymbolAgainstQuery(
     corpus.docFreq,
     corpus.docCount,
     corpus.avgdl,
-    0.35,
+    0.8,
   );
 
   let exact = 0;
