@@ -1385,6 +1385,14 @@ export class TypeScriptContextCompiler implements ContextCompilerTools {
         },
       ],
       successCriteria: [input.task.slice(0, 180), ...qualityCriteria(input.task, query)],
+      // Zayıflık ajana SÖYLENİR. Gerekçeler zaten hesaplanıyordu ama yalnızca
+      // `_meta`'ya gidiyordu; ajanın okuduğu yer burası.
+      // Bir alan, bir cümle. Payload'ın katı bir bayt bütçesi var (bütçe
+      // seviyesi 0'da 200 token) ve orada çoğu zaman TEK sembol kalıyor —
+      // kırpılacak yer yok. Gerekçe listesi ile güven skoru orkestrasyon
+      // için `_meta`'da duruyor; modelin ihtiyacı olan tek şey durup
+      // doğrulaması gerektiği.
+      ...(reasons.length > 0 ? { retrievalWeak: "zayıf eşleşme, doğrula" } : {}),
     };
 
     while (JSON.stringify(payload).length > payloadTokenLimit * 4 && payload.relevantSymbols.length > 1) {

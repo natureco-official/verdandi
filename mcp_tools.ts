@@ -52,6 +52,21 @@ export interface ModelTaskCapsule {
   probableFiles: string[];
   decisions: CapsuleDecision[];
   successCriteria: string[];
+  /**
+   * Seçimin zayıf olduğu, YALNIZCA zayıfken bildirilir.
+   *
+   * Derleyici belirsizliği zaten hesaplıyordu ama sonucu `_meta`'ya
+   * koyuyordu — ajanın karar verirken okuduğu yer `model_payload`. Ölçüldü
+   * (30 Temmuz 2026, natureco-skuld): doğal dille sorulan bir görevde alakasız
+   * bir dosya 0.851 skorla döndü, `uncertaintyReasons` "Sorgu terimlerinin azı
+   * sembol/path ile örtüşüyor" diyordu ve bu ajana hiç ulaşmadı. Yüksek skorlu
+   * yanlış cevap, düşük skorlu yanlış cevaptan tehlikelidir: geri çekilme
+   * sinyali yoktur.
+   *
+   * Alan yokken kapsül eskisiyle birebir aynı — belirsizlik yoksa token da
+   * harcanmaz, ve alanın VARLIĞI tek başına bir uyarıdır.
+   */
+  retrievalWeak?: string;
 }
 
 export interface ContextCompilerMeta {
@@ -110,6 +125,8 @@ export interface ContextCapsuleWire {
       urdr_leaf_id?: string;
     }>;
     success_criteria: string[];
+    /** Yalnızca seçim zayıfken bulunur; varlığı tek başına uyarıdır. */
+    retrieval_weak?: string;
   };
   control: {
     estimated_payload_tokens: number;
@@ -182,6 +199,9 @@ export function mapContextCapsule(
             : { urdr_leaf_id: decision.urdrLeafId }),
         })),
         success_criteria: domain.modelPayload.successCriteria,
+        ...(domain.modelPayload.retrievalWeak === undefined
+          ? {}
+          : { retrieval_weak: domain.modelPayload.retrievalWeak }),
       },
       control: {
         estimated_payload_tokens: domain._meta.estimatedPayloadTokens,
@@ -248,6 +268,12 @@ export function mapContextCapsule(
           : { urdrLeafId: decision.urdr_leaf_id }),
       })),
       successCriteria: wire.model_payload.success_criteria,
+      // Gidiş-dönüş simetrik olmalı: serialize edip deserialize edince uyarı
+      // kaybolursa, kapsülü diskte/kuyrukta taşıyan her yol onu sessizce
+      // düşürür.
+      ...(wire.model_payload.retrieval_weak === undefined
+        ? {}
+        : { retrievalWeak: wire.model_payload.retrieval_weak }),
     },
     _meta: {
       estimatedPayloadTokens: wire.control.estimated_payload_tokens,
