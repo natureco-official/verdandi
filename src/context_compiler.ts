@@ -1395,15 +1395,51 @@ export class TypeScriptContextCompiler implements ContextCompilerTools {
       ...(reasons.length > 0 ? { retrievalWeak: "zayıf eşleşme, doğrula" } : {}),
     };
 
-    while (JSON.stringify(payload).length > payloadTokenLimit * 4 && payload.relevantSymbols.length > 1) {
+    // Bütçe yalnızca SEMBOL atarak uygulanıyordu ve döngü son sembolde
+    // duruyordu. Seviye 0'da `budget.direct = 1`, yani zaten tek sembol var:
+    // döngü hiç çalışamıyor. Oysa sabit kısımlar (hedef + karar metinleri +
+    // kriterler) tek başına 135–167 token — 200 token vaadi yapısal olarak
+    // ulaşılamaz hale geliyordu.
+    //
+    // Ölçüldü (30 Temmuz 2026, Verðandi + natureco-skuld, 40 çağrı): seviye
+    // 0'daki çağrıların 17'si bütçeyi 3–31 token aşıyordu. Aşım sessizdi;
+    // `estimatedPayloadTokens` doğruyu söylüyor ama kimse ona bakıp
+    // "vaadimi tutamadım" demiyordu.
+    //
+    // Sıra, ajanın işine yaramayana göre: önce fazla semboller, sonra kendi
+    // algoritmamızı anlatan karar metni (göreve sıfır katkısı var), sonra
+    // fazladan başarı kriterleri. Hedef ve en az bir sembol asla atılmaz —
+    // onlar atılırsa kapsül zaten kapsül olmaktan çıkar.
+    const butceBaytI = payloadTokenLimit * 4;
+    const asiyorMu = () => JSON.stringify(payload).length > butceBaytI;
+
+    while (asiyorMu() && payload.relevantSymbols.length > 1) {
       payload.relevantSymbols.pop();
       payload.probableFiles = [...new Set(payload.relevantSymbols.map(ref => ref.file))];
     }
+    // Seçim algoritmasını anlatan karar, görevi yapan ajana hiçbir şey
+    // katmıyor; bütçe sıkışınca ilk gidecek olan odur.
+    if (asiyorMu() && payload.decisions.length > 1) {
+      payload.decisions = payload.decisions.filter(
+        karar => !karar.summary.startsWith("BM25 + path-aware ranking"),
+      );
+    }
+    while (asiyorMu() && payload.successCriteria.length > 1) {
+      payload.successCriteria.pop();
+    }
+    // Kalan kararlar ATILMAZ. İlk denemede sondan karar atıyordum ve mekanik
+    // import/lint görevlerine özel rehberliği siliyordu — mevcut bir test bunu
+    // yakaladı. O kararlar ajanın ne yapacağını söylüyor; bütçe uğruna
+    // görevin kendisini kesmek, kapsülü küçültmek değil sakatlamaktır.
+    // Buraya rağmen sığmıyorsa aşım bildirilir, gizlenmez.
 
     const estimatedPayloadTokens = Math.max(
       1,
       Math.ceil(JSON.stringify(payload).length / 4),
     );
+    // Her şeye rağmen sığmadıysa SÖYLENİR. Sessizce aşmak, bütçe vaadini
+    // ölçülemez kılar; bunu bilen taraf bir sonraki çağrıda daralta bilir.
+    const payloadBudgetExceeded = estimatedPayloadTokens > payloadTokenLimit;
 
     return {
       schemaVersion: "0.2.0",
@@ -1411,6 +1447,7 @@ export class TypeScriptContextCompiler implements ContextCompilerTools {
       modelPayload: payload,
       _meta: {
         estimatedPayloadTokens,
+        ...(payloadBudgetExceeded ? { payloadBudgetExceeded } : {}),
         retrievalConfidence: confidence,
         uncertaintyReasons: reasons,
         selectedBudgetLevel,

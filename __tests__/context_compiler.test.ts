@@ -218,7 +218,14 @@ describe("TypeScriptContextCompiler", () => {
       assert.equal(result._meta.selectedBudgetLevel, 0);
       assert.equal(result.modelPayload.relevantSymbols.length, 1);
       assert.equal(result.modelPayload.probableFiles.length, 1);
-      assert.match(result.modelPayload.decisions[1]?.summary ?? "", /mekanik import\/lint/);
+      // Konumdan değil İÇERİKTEN okunuyor: bütçe sıkıştığında kapsül, göreve
+      // hiçbir şey katmayan "BM25 + path-aware ranking" kararını atıyor ve
+      // kalan kararlar öne kayıyor. Testin derdi rehberliğin VAR olması;
+      // kaçıncı sırada durduğu değil.
+      assert.ok(
+        result.modelPayload.decisions.some(karar => /mekanik import\/lint/.test(karar.summary)),
+        "mekanik görev rehberliği kapsülde kalmalı",
+      );
     });
 
     it("test niyetinde test dosyalarini uretim dosyalarinin gerisine itmez", () => {

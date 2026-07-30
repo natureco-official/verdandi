@@ -71,6 +71,8 @@ export interface ModelTaskCapsule {
 
 export interface ContextCompilerMeta {
   estimatedPayloadTokens: number;
+  /** Kırpmaya rağmen bütçe tutmadıysa bulunur; sessiz aşım olmasın diye. */
+  payloadBudgetExceeded?: boolean;
   retrievalConfidence: number;
   uncertaintyReasons: string[];
   selectedBudgetLevel: BudgetLevel;
