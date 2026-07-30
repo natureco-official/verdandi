@@ -476,6 +476,96 @@ function isTopLevelOrMember(node: ts.Node): boolean {
 type WalkResult = { files: string[]; truncated: boolean };
 
 /**
+ * `.gitignore` kuralı — yalnızca DİZİN atlamak için.
+ *
+ * Derlenmiş çıktı, önbellek ve kopyalanmış paketler indeksi kirletiyordu.
+ * Ölçüldü (30 Temmuz 2026, natureco_improvements): "forum gönderisi silme
+ * yetkisi" görevine dönen ilk dosya 683 KB'lık bir Capacitor paketi olan
+ * `android/app/src/main/assets/public/assets/firebase-CuxlGNoM.js` idi.
+ *
+ * Ad kalıbıyla ("tire + 8 karakter karma") elemeyi denedim ve ölçünce vazgeçtim:
+ * `pattern-detector.js`, `rock2-selftest.mjs`, `mutasyon-denemesi.mjs` gibi
+ * GERÇEK kaynak dosyalar da o kalıba uyuyor. Kaynağı silmek, paketi
+ * indekslemekten kötüdür.
+ *
+ * Doğru sinyal zaten projede yazılı: bu yolların hepsi `.gitignore`'da ve git
+ * tarafından takip edilmiyor. Tahmin yok, projenin kendi beyanı var.
+ *
+ * KAPSAM BİLEREK DAR: yalnızca dizinler elenir, dosyalar elenmez. Böylece
+ * hatalı bir eşleşmenin bedeli en fazla "biraz fazla indeksledik" olur —
+ * bugünkü davranış. Desteklenen alt küme: yorum/boş satır, `!` olumsuzlama,
+ * sondaki `/`, baştaki `/` ile çapalama, `*`, `?` ve `**`.
+ */
+interface YokSaymaKurali {
+  readonly desen: RegExp;
+  readonly olumsuz: boolean;
+}
+
+function globuRegexeCevir(desen: string): string {
+  let cikti = "";
+  for (let i = 0; i < desen.length; i++) {
+    const karakter = desen[i]!;
+    if (karakter === "*") {
+      if (desen[i + 1] === "*") {
+        cikti += ".*";
+        i++;
+        if (desen[i + 1] === "/") i++;
+      } else {
+        cikti += "[^/]*";
+      }
+    } else if (karakter === "?") {
+      cikti += "[^/]";
+    } else if (".+^${}()|[]\\".includes(karakter)) {
+      cikti += `\\${karakter}`;
+    } else {
+      cikti += karakter;
+    }
+  }
+  return cikti;
+}
+
+function gitignoreAyristir(metin: string, temelGoreliDizin: string): YokSaymaKurali[] {
+  const kurallar: YokSaymaKurali[] = [];
+  for (const satir of metin.split(/\r?\n/)) {
+    let desen = satir.trim();
+    if (!desen || desen.startsWith("#")) continue;
+    const olumsuz = desen.startsWith("!");
+    if (olumsuz) desen = desen.slice(1);
+    if (desen.endsWith("/")) desen = desen.slice(0, -1);
+    if (!desen) continue;
+
+    // İçinde `/` olan desen kendi `.gitignore` dizinine çapalanır; olmayan
+    // desen her derinlikte ada bakar. Git'in kuralı budur.
+    const capali = desen.startsWith("/") || desen.slice(0, -1).includes("/");
+    if (desen.startsWith("/")) desen = desen.slice(1);
+    const temel = temelGoreliDizin ? `${temelGoreliDizin}/` : "";
+    const govde = globuRegexeCevir(desen);
+    const tam = capali ? `^${temel}${govde}$` : `^${temel}(?:.*/)?${govde}$`;
+    kurallar.push({ desen: new RegExp(tam), olumsuz });
+  }
+  return kurallar;
+}
+
+async function gitignoreOku(root: string, dizin: string): Promise<YokSaymaKurali[]> {
+  try {
+    const metin = await fs.readFile(path.join(dizin, ".gitignore"), "utf8");
+    const goreli = path.relative(root, dizin).split(path.sep).join("/");
+    return gitignoreAyristir(metin, goreli);
+  } catch {
+    return [];
+  }
+}
+
+/** Son eşleşen kural kazanır — git'in davranışı. */
+function yokSayiliyorMu(goreliYol: string, kurallar: readonly YokSaymaKurali[]): boolean {
+  let sonuc = false;
+  for (const kural of kurallar) {
+    if (kural.desen.test(goreliYol)) sonuc = !kural.olumsuz;
+  }
+  return sonuc;
+}
+
+/**
  * Kendi `.git`'i olan alt dizin AYRI BİR DEPODUR; bu projenin parçası değil.
  *
  * Ölçüldü (30 Temmuz 2026, natureco_improvements — 293 dosyalık en büyük
@@ -504,6 +594,9 @@ async function walk(
   root: string,
   current = root,
   result: WalkResult = { files: [], truncated: false },
+  // Üstteki dizinlerden devralınan `.gitignore` kuralları. Git de böyle
+  // çalışır: her dizinin kendi dosyası, atalarınınkine EKLENİR.
+  devralinanKurallar: readonly YokSaymaKurali[] = [],
 ): Promise<WalkResult> {
   let entries;
   try {
@@ -516,6 +609,11 @@ async function walk(
     }
     throw error;
   }
+  const buradakiKurallar = await gitignoreOku(root, current);
+  const kurallar = buradakiKurallar.length > 0
+    ? [...devralinanKurallar, ...buradakiKurallar]
+    : devralinanKurallar;
+
   for (const entry of entries) {
     if (result.files.length >= MAX_INDEXED_FILES) {
       result.truncated = true;
@@ -524,8 +622,13 @@ async function walk(
     if (entry.name.startsWith(".") && !entry.name.startsWith(".eslintrc")) continue;
     if (entry.isDirectory()) {
       const mutlak = path.join(current, entry.name);
-      if (!isBuildOutputDir(entry.name) && !(await isNestedRepository(root, mutlak))) {
-        await walk(root, mutlak, result);
+      const goreli = path.relative(root, mutlak).split(path.sep).join("/");
+      if (
+        !isBuildOutputDir(entry.name)
+        && !yokSayiliyorMu(goreli, kurallar)
+        && !(await isNestedRepository(root, mutlak))
+      ) {
+        await walk(root, mutlak, result, kurallar);
       }
     } else if (entry.isFile() && (SOURCE_EXTENSIONS.has(path.extname(entry.name)) || CONFIG_FILE_PATTERN.test(entry.name))) {
       const absolute = path.join(current, entry.name);
