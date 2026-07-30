@@ -302,6 +302,90 @@ const SYNONYM_MAP: Record<string, string[]> = {
   aynalama: ["mirror", "mirroring"],
 };
 
+/**
+ * Türkçe kök → İngilizce tanımlayıcı köprüsü.
+ *
+ * Görev Türkçe yazılıyor, kod İngilizce adlandırılıyor. Aralarında harf
+ * örtüşmesi olmadığı için sıralama çöküyordu. Ölçüldü (30 Temmuz 2026,
+ * natureco_improvements, 10 gerçek görev): ilk sırada doğru dosya oranı
+ * **%30**. İsabet eden üç görevin üçünde de metinde zaten İngilizce/ortak bir
+ * kelime vardı ("avatar", "rate limit", "forum"); saf Türkçe kavramların
+ * TAMAMI kaçıyordu. `VoiceRooms.tsx` dosya olarak duruyor ama "sesli oda"
+ * sorgusuyla bulunamıyor.
+ *
+ * Eşleşme ÖNEK ile: Türkçe eklemeli bir dil, "katıl" kökü "katılma",
+ * "katılıyor", "katılamıyor" hâllerinin hepsinde başta duruyor. Tam eşleşme
+ * bu yüzden işe yaramıyordu.
+ *
+ * Genişletme, DEĞİŞTİRME değil: Türkçe sözcük sorguda kalır, İngilizce
+ * karşılıkları eklenir. Türkçe yazılmış yorum satırları da eşleşmeye devam
+ * eder.
+ *
+ * Uzun kök önce denenir: "gonderi" (post) ile "gonder" (send) farklı şeyler.
+ */
+const TR_KOK_ESLEME: ReadonlyArray<readonly [string, readonly string[]]> = [
+  ["bildirim", ["notification", "notify", "alert"]],
+  ["dogrula", ["verify", "validate", "auth", "factor"]],
+  ["guncelle", ["update", "patch"]],
+  ["kullanici", ["user", "account", "member"]],
+  ["veritabani", ["database", "db", "store"]],
+  ["yetkilendir", ["auth", "permission", "role"]],
+  // "gonderil-" / "gonderim" FIILIN edilgen halleri (gonder-il-), "gonderi"
+  // ise isim (post). Ikisi de ayni onekle basliyor; uzun kok once denendigi
+  // icin fiil halleri isimden ONCE yazilir.
+  ["gonderil", ["send", "request"]],
+  ["gonderim", ["send", "request"]],
+  ["gonderi", ["post", "entry"]],
+  ["gonder", ["send", "request"]],
+  ["cozum", ["resolve", "parse", "match"]],
+  ["yanit", ["response"]],
+  ["baglan", ["connect", "connection", "socket"]],
+  ["katil", ["join", "enter", "participant"]],
+  ["oturum", ["session", "auth", "login"]],
+  ["parola", ["password", "credential"]],
+  ["profil", ["profile", "account"]],
+  ["sifre", ["password", "credential"]],
+  ["yukle", ["upload"]],
+  ["ayar", ["setting", "preference"]],
+  ["canli", ["live", "stream", "realtime"]],
+  ["hafiza", ["memory", "cache"]],
+  ["istemci", ["client"]],
+  ["kaydet", ["save", "persist", "store"]],
+  ["mesaj", ["message", "chat"]],
+  ["sunucu", ["server", "host"]],
+  ["yayin", ["stream", "broadcast", "live", "publish"]],
+  ["yorum", ["comment"]],
+  ["arama", ["search", "query", "find"]],
+  ["bellek", ["memory", "cache"]],
+  ["dosya", ["file"]],
+  ["gorsel", ["image", "picture", "media"]],
+  ["indir", ["download", "fetch"]],
+  ["istek", ["request"]],
+  ["giris", ["login", "signin", "auth", "entry"]],
+  ["cikis", ["logout", "signout", "exit"]],
+  ["resim", ["image", "picture"]],
+  ["sayfa", ["page", "screen", "view"]],
+  ["sesli", ["voice", "audio"]],
+  ["takip", ["follow", "subscribe", "watch"]],
+  ["yetki", ["permission", "role", "auth", "access"]],
+  ["adim", ["step", "factor", "stage"]],
+  ["hata", ["error", "failure", "exception"]],
+  ["liste", ["list", "collection"]],
+  ["odeme", ["payment", "billing", "checkout"]],
+  ["sorgu", ["query"]],
+  ["tema", ["theme", "style"]],
+  ["oda", ["room", "channel"]],
+  ["ses", ["voice", "audio", "sound"]],
+  ["sil", ["delete", "remove", "destroy"]],
+];
+
+function trKokGenislet(sozcuk: string): readonly string[] | undefined {
+  for (const [kok, karsiliklar] of TR_KOK_ESLEME) {
+    if (sozcuk.startsWith(kok)) return karsiliklar;
+  }
+  return undefined;
+}
+
 /** Query tokens keep task intent words and expand domain synonyms (Verðandi Concept Expansion). */
 export function queryTokens(task: string): string[] {
   const split = normalizeSearchText(task)
@@ -323,11 +407,9 @@ export function queryTokens(task: string): string[] {
       ?? (part.startsWith("test") ? SYNONYM_MAP.test : undefined)
       ?? (part.startsWith("entegrasyon") ? SYNONYM_MAP.entegrasyon : undefined)
       ?? (part.startsWith("regresyon") ? SYNONYM_MAP.regresyon : undefined)
-      ?? (part.startsWith("cozum") ? ["resolve", "parse", "match"] : undefined)
-      ?? (part.startsWith("gonder") ? ["send", "request"] : undefined)
-      ?? (part.startsWith("yanit") ? ["response"] : undefined)
       ?? (part.startsWith("document") ? ["document"] : undefined)
-      ?? (part.startsWith("aynalama") ? SYNONYM_MAP.aynalama : undefined);
+      ?? (part.startsWith("aynalama") ? SYNONYM_MAP.aynalama : undefined)
+      ?? trKokGenislet(part);
     if (syns) {
       for (const s of syns) {
         if (!seen.has(s)) {
