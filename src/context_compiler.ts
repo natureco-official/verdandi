@@ -189,6 +189,33 @@ const MAX_ROLLBACK_BACKUP_BYTES = 16 * 1024 * 1024;
 
 const hash = (value: string | Buffer) => createHash("sha256").update(value).digest("hex");
 
+/**
+ * Yamalanan metni dosyanın KENDİ satır sonu geleneğine uydurur.
+ *
+ * `apply_structured_patch` gelen gövdeyi olduğu gibi yerleştiriyordu. Çağıran
+ * taraf gövdeyi `\n` ile yazdığında — JSON üzerinden gelen her istekte olağan
+ * olan budur — CRLF bir dosya KARIŞIK satır sonlu hale geliyordu: yamalanan
+ * satırlar LF, gerisi CRLF. Canlı denemede tam olarak bu görüldü, üstelik
+ * `applied: true` ve tek bir uyarı olmadan.
+ *
+ * Windows'ta bedeli sessiz değil: `eslint linebreak-style` ihlali, `prettier`
+ * farkı ve `core.autocrlf` altında dosyanın tamamının değişmiş görünmesi.
+ * Kural basit — dosya ne kullanıyorsa eklenen metin de onu kullanır.
+ *
+ * Hiç satır sonu olmayan dosyada karar verilecek bir gelenek yoktur; metin
+ * olduğu gibi bırakılır (tahmin etmek, yanlış tahmin etme riskini bedava
+ * getirirdi).
+ */
+function matchLineEndings(value: string, fileText: string): string {
+  const crlfCount = (fileText.match(/\r\n/g) || []).length;
+  const lfCount = (fileText.match(/(?<!\r)\n/g) || []).length;
+  if (crlfCount === 0 && lfCount === 0) return value;
+  // Önce tamamı LF'e indirgenir, sonra hedef geleneğe çevrilir: girdi karışık
+  // gelse bile çıktı tek biçimli olur.
+  const lf = value.replace(/\r\n/g, "\n");
+  return crlfCount > lfCount ? lf.replace(/\n/g, "\r\n") : lf;
+}
+
 function normalizeSearchText(value: string): string {
   return value
     .normalize("NFKD")
@@ -1754,7 +1781,11 @@ export class TypeScriptContextCompiler implements ContextCompilerTools {
         }
       }
       for (const change of sorted) {
-        text = text.slice(0, change.start) + change.value + text.slice(change.end);
+        // Gelen gövde dosyanın satır sonu geleneğine uydurulur; yoksa CRLF bir
+        // dosya karışık satır sonlu hale geliyor (bkz. matchLineEndings).
+        text = text.slice(0, change.start)
+          + matchLineEndings(change.value, original)
+          + text.slice(change.end);
       }
       const parsed = ts.createSourceFile(
         file.absolute,
