@@ -65,6 +65,26 @@ export interface ModelTaskCapsule {
    *
    * Alan yokken kapsül eskisiyle birebir aynı — belirsizlik yoksa token da
    * harcanmaz, ve alanın VARLIĞI tek başına bir uyarıdır.
+   *
+   * GÜVENİLİRLİĞİ ÖLÇÜLDÜ, ve bir güvence DEĞİLDİR. 30 görevde
+   * (natureco_improvements, doğru dosya elle belirlendi):
+   *
+   *   Türkçe : 12 kaçırmanın 7'sinde yandı, 3 isabetin 2'sinde de yandı.
+   *   İngilizce: 6 kaçırmanın HİÇBİRİNDE yanmadı, 9 isabetin 4'ünde yandı.
+   *
+   * Yani Türkçede kısmi koruma sağlıyor, İngilizcede bilgi taşımıyor.
+   * Tetikleyicisi "sorgu terimleri sembol/path ile az örtüşüyor" ve bu, dil
+   * farkını ölçüyor — isabeti değil.
+   *
+   * Daha iyi bir tetikleyici arandı ve BULUNAMADI: isabet edenlerle
+   * kaçıranların ham skorları (94.6'ya 76.2), birinci-ikinci farkı (51.7'ye
+   * 50.1) ve güven değerleri (0.88'e 0.90) neredeyse tamamen çakışıyor;
+   * Türkçede sinyal tersine dönüyor. Mevcut özelliklerle "bilmiyorum" demek
+   * ölçülebilir biçimde mümkün değil.
+   *
+   * Bu yüzden alanın yokluğu "cevap doğru" anlamına GELMEZ. Kapsül bir
+   * başlangıç hipotezidir; düzenlemeden önce doğrulama `apply_structured_patch`
+   * önkoşul hash'leri ve `validate_delta` ile yapılır.
    */
   retrievalWeak?: string;
 }
