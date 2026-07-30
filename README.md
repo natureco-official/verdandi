@@ -268,6 +268,7 @@ An earlier run reported 100% for `hit@1` and symbol recall, but those numbers **
 - [**NatureCo CLI**](https://github.com/natureco-official/natureco-cli) — A terminal-native AI assistant: chat, a coding agent, automation, and bots on Telegram, Discord and Slack
 - [**CodeDNA**](https://github.com/natureco-official/codedna) — How much of a commit was written by AI, and does its author actually understand it?
 - [**NatureCo SDK**](https://github.com/natureco-official/natureco-sdk) — JavaScript SDK for the NatureCo API — build AI chatbots and ship them anywhere
+- [**Skuld**](https://github.com/natureco-official/natureco-skuld) — An agentic coding workspace that will not claim success it cannot prove — every change goes through a verification gate before it is reported as done
 
 Urðr remembers across sessions. Verðandi decides what matters *right now*. They stay separate on purpose: Verðandi keeps no session history and stores no large code fragments.
 
