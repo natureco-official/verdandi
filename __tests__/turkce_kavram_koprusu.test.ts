@@ -81,6 +81,41 @@ describe("sorgu — Türkçe kavram köprüsü", () => {
     assert.ok(queryTokens("forum gonderisi").includes("post"), "gonderi → post olmalı");
   });
 
+  /**
+   * Bu araç yalnız Türkçe konuşanlar için değil. Önek eşleşmesi Türkçe için
+   * şart ama İngilizce yazan birine zarar veremez.
+   *
+   * Ölçüldüğünde tam olarak bu oluyordu: `silent mode` sorgusu "sil" kökünden
+   * **delete/remove/destroy** ile genişliyordu — "sessiz mod" arayan kişiye
+   * silme kodu öneriliyordu. `listen for events` de "liste"den list/collection
+   * alıyordu.
+   */
+  it("İngilizce sözcükleri Türkçe kök sanıp kirletmez", () => {
+    const kirlenmemeli: ReadonlyArray<readonly [string, readonly string[]]> = [
+      ["silent mode", ["delete", "remove", "destroy"]],
+      ["listen for events", ["list", "collection"]],
+      ["indirect dependency", ["download", "fetch"]],
+      ["odata endpoint", ["room", "channel"]],
+    ];
+    for (const [cumle, olmamali] of kirlenmemeli) {
+      const sozcukler = queryTokens(cumle);
+      for (const terim of olmamali) {
+        assert.equal(
+          sozcukler.includes(terim),
+          false,
+          `"${cumle}" sorgusuna "${terim}" bulaştı: ${sozcukler.join(",")}`,
+        );
+      }
+    }
+  });
+
+  it("koruma Türkçe karşılıklarını bozmaz", () => {
+    assert.ok(queryTokens("mesaji sil").includes("delete"), "sil → delete çalışmalı");
+    assert.ok(queryTokens("sesli oda").includes("voice"), "sesli → voice çalışmalı");
+    assert.ok(queryTokens("dosya indirme").includes("download"), "indirme → download çalışmalı");
+    assert.ok(queryTokens("listeyi guncelle").includes("list"), "listeyi → list çalışmalı");
+  });
+
   it("Türkçe görev İngilizce adlı dosyayı bulur", async () => {
     const kok = await projeKur();
     const sonuc = await new TypeScriptContextCompiler().context_capsule({

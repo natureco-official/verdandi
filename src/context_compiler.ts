@@ -379,8 +379,38 @@ const TR_KOK_ESLEME: ReadonlyArray<readonly [string, readonly string[]]> = [
   ["sil", ["delete", "remove", "destroy"]],
 ];
 
+/**
+ * Türkçe kökün İngilizce bir sözcüğün başına denk gelmesi.
+ *
+ * Bu araç yalnız Türkçe konuşanlar için değil. Önek eşleşmesi Türkçe için
+ * şart ama İngilizce yazan birine zarar veremez: ölçüldüğünde `silent mode`
+ * sorgusu "sil" kökünden **delete/remove/destroy** ile genişliyordu — yani
+ * "sessiz mod" arayan kişiye silme kodu öneriliyordu. `listen for events` de
+ * "liste"den list/collection alıyordu.
+ *
+ * İki katmanlı koruma:
+ *  1. Dört harften kısa kökler (ses, sil, oda) YALNIZ tam sözcük eşleşmesiyle
+ *     çalışır. `session`, `silent`, `odata` böylece kurtulur.
+ *  2. Daha uzun köklerin bilinen çakışmaları burada adıyla listelenir.
+ *
+ * Liste bakım gerektirir ve bunu saklamıyorum — ama bir sözcüğü yanlış
+ * genişletmenin bedeli, o sorgunun tamamen yanlış dosyaya gitmesi. Ölçülmüş
+ * çakışmayı elle yazmak, tahmine dayalı bir kurala yeğdir.
+ */
+const TR_EN_CAKISMA: ReadonlySet<string> = new Set([
+  "listen", "listener", "listeners", "listening", "listed", "listing",
+  "indirect", "indirectly", "indirection",
+]);
+
+const KISA_KOK_SINIRI = 4;
+
 function trKokGenislet(sozcuk: string): readonly string[] | undefined {
+  if (TR_EN_CAKISMA.has(sozcuk)) return undefined;
   for (const [kok, karsiliklar] of TR_KOK_ESLEME) {
+    if (kok.length < KISA_KOK_SINIRI) {
+      if (sozcuk === kok) return karsiliklar;
+      continue;
+    }
     if (sozcuk.startsWith(kok)) return karsiliklar;
   }
   return undefined;
