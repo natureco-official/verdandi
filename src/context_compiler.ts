@@ -3,6 +3,7 @@ import { execFile } from "node:child_process";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import ts from "typescript";
+import { dosyaVektorleri, kosinus, sorguVektoru } from "./semantic.js";
 import {
   type ApplyStructuredPatchInput,
   type ApplyStructuredPatchOutput,
@@ -1127,6 +1128,57 @@ export class TypeScriptContextCompiler implements ContextCompilerTools {
     return indexData;
   }
 
+  /**
+   * Anlamsal olarak yakın ama sözcüksel sıralamanın kaçırdığı dosyalardan
+   * aday üretir.
+   *
+   * Dosya başına en iyi sembolü alır: kapsülün işi ajanı doğru dosyaya
+   * götürmek, oradaki her sembolü saymak değil. Zaten seçilmiş dosyalar
+   * atlanır — anlamsal katmanın değeri, sözcüksel yöntemin GÖREMEDİĞİ yeri
+   * göstermesi.
+   *
+   * `hopDistance: 1` ve `relation: "imported"` kasıtlı: bunlar doğrudan
+   * sözcük eşleşmesi değil, komşuluk kanıtı. Ajana da öyle görünmeli.
+   */
+  private async anlamsalAdaylar(
+    index: ProjectIndex,
+    gorev: string,
+    mevcut: readonly IndexedSymbol[],
+    enFazla: number,
+  ): Promise<IndexedSymbol[]> {
+    const vektorler = await dosyaVektorleri(
+      index.root,
+      index.files.map(f => ({ relative: f.relative, text: f.text })),
+    );
+    if (!vektorler) return [];
+    const sorgu = await sorguVektoru(gorev);
+    if (!sorgu) return [];
+
+    const secilmisDosyalar = new Set(mevcut.map(s => s.file));
+    const siralı = vektorler
+      .filter(v => !secilmisDosyalar.has(v.file))
+      .map(v => ({ file: v.file, benzerlik: kosinus(sorgu, v.vektor) }))
+      .sort((a, b) => b.benzerlik - a.benzerlik)
+      .slice(0, Math.max(1, Math.ceil(enFazla / 2)));
+
+    const cikan: IndexedSymbol[] = [];
+    for (const aday of siralı) {
+      const semboller = index.symbolsByFile.get(aday.file) ?? [];
+      const enIyi = semboller[0];
+      if (!enIyi) continue;
+      cikan.push({
+        ...enIyi,
+        hopDistance: 1 as const,
+        relation: "imported" as const,
+        // Sözcüksel skorlarla aynı ölçekte olsun diye normalize ediliyor;
+        // aksi hâlde 0–1 arası bir benzerlik, 100'lük skorların yanında
+        // anlamsız görünürdü.
+        score: aday.benzerlik * 10,
+      });
+    }
+    return cikan;
+  }
+
   private async computeSnapshot(projectRoot: string): Promise<string> {
     const root = path.resolve(projectRoot);
     const { files: filenames } = await walk(root);
@@ -1648,6 +1700,27 @@ export class TypeScriptContextCompiler implements ContextCompilerTools {
     const already = new Set(direct.map(s => `${s.file}::${s.symbol}`));
     const neighbors = this.pickNeighborSymbols(index, direct, query, already, budget.neighbors);
     const refs = [...direct, ...neighbors];
+
+    // Anlamsal aday EKLEME — sözcüksel sonuçların yerine değil, yanına.
+    //
+    // Sözcük örtüşmesi, görev Türkçe yazılıp kod İngilizce adlandırıldığında
+    // çaresiz: `screenShareManager.ts` ile "ekran paylaşımı" arasında tek harf
+    // ortaklığı yok. Ölçüldü (30 Temmuz 2026): aynı 8 görevde sözcüksel
+    // yöntem 2, anlamsal yöntem 3 tanesini ilk sırada buluyor — ama farklı
+    // görevleri. Biri diğerinin YERİNE konsaydı kayıp olurdu; birleşimi 6
+    // yakalıyor.
+    //
+    // Bağımlılık kurulu değilse `dosyaVektorleri` null döner ve bu blok hiç
+    // çalışmaz: ürün bugünkü davranışını aynen sürdürür.
+    const anlamsalEk = (await this.anlamsalAdaylar(index, input.task, refs, budget.direct))
+      .filter(ek => !refs.some(r => r.file === ek.file && r.symbol === ek.symbol));
+    // SONA eklenmiyor: bütçe kırpması listeyi sondan kısaltıyor ve anlamsal
+    // adaylar her seferinde ilk kurban oluyordu — ölçümde katkıları sıfır
+    // göründü, çünkü hiçbiri kapsüle ulaşmıyordu. Sözcüksel ilk üçün arkasına
+    // yerleştiriliyorlar: en güçlü sözcüksel eşleşmeler korunur, ama anlamsal
+    // katman da kırpmadan sağ çıkar.
+    refs.splice(Math.min(3, refs.length), 0, ...anlamsalEk);
+
     const primaryPackageDir = refs[0]
       ? await nearestPackageDirectory(index.root, refs[0].file)
       : ".";

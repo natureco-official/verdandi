@@ -65,5 +65,8 @@
   "homepage": "https://github.com/natureco-official/verdandi#readme",
   "bugs": {
     "url": "https://github.com/natureco-official/verdandi/issues"
+  },
+  "optionalDependencies": {
+    "@huggingface/transformers": "^4.2.0"
   }
 }
