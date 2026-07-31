@@ -164,6 +164,37 @@ Two independent ways to use Verðandi, and not every agent has both. This table 
 > writes the capsule into the agent's prompt — a feature, not the security term. The security
 > question is below.
 
+### Tasks written in another language (optional, off)
+
+Ranking works on shared letters, so a task written in Turkish against code named
+in English has nothing to match on: `screenShareManager.ts` and "ekran paylaşımı"
+have no letters in common. A semantic layer can bridge that. It is built, and it
+is off.
+
+Measured on a 293-file project, 15 tasks per language with the correct file
+established by hand, target present in the capsule:
+
+| | lexical only | with semantics |
+|---|---:|---:|
+| Turkish | 7/15 | **8/15** |
+| English | 12/15 | **13/15** |
+
+One task per language. The two are complementary rather than ranked -- on a
+subset of eight, each finds three the other misses -- so semantic results are
+added beside the lexical ones, never in place of them.
+
+It is off by default, and the dependency is not installed by default either:
+
+```bash
+npm install @huggingface/transformers   # ~382 MB, one time
+VERDANDI_SEMANTIC=1 npx verdandi-context-compiler
+```
+
+Enabling it costs more than the table shows. With the package present and the
+layer on, the test suite went from 30 to 162 seconds and the first index of a
+large project pays for embedding every file (cached afterwards under
+`~/.verdandi`, keyed by file content). Weigh it against one task in fifteen.
+
 ### Running this on code you do not trust
 
 Verðandi's whole job is to put **raw source from the indexed project** into an agent's prompt. If

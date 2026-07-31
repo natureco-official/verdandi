@@ -163,6 +163,37 @@ Verðandi'yi kullanmanın birbirinden bağımsız iki yolu var ve her ajanda iki
 > **Sütunun adı bilerek "kapsül enjeksiyonu", "prompt enjeksiyonu" değil.** Anlamı, Verðandi'nin
 > kapsülü ajanın prompt'una yazması — bir yetenek, güvenlik terimi değil. Güvenlik sorusu aşağıda.
 
+### Başka bir dilde yazılmış görevler (isteğe bağlı, kapalı)
+
+Sıralama harf örtüşmesiyle çalışır; görev Türkçe yazılıp kod İngilizce
+adlandırıldığında tutunacak yer kalmaz: `screenShareManager.ts` ile "ekran
+paylaşımı" arasında tek harf ortaklığı yok. Anlamsal katman bu köprüyü kurabilir.
+Kuruldu, ve kapalı.
+
+293 dosyalık bir projede, dil başına 15 görevle ve doğru dosya elle belirlenerek
+ölçüldü — hedefin kapsülde bulunma oranı:
+
+| | yalnız sözcüksel | anlamsal ile |
+|---|---:|---:|
+| Türkçe | 7/15 | **8/15** |
+| İngilizce | 12/15 | **13/15** |
+
+Dil başına bir görev. İkisi rakip değil tamamlayıcı — sekiz görevlik alt kümede
+her biri diğerinin kaçırdığı üçünü buluyor — bu yüzden anlamsal sonuçlar
+sözcükselin yerine değil yanına ekleniyor.
+
+Varsayılan kapalı, ve bağımlılık da varsayılan olarak kurulmuyor:
+
+```bash
+npm install @huggingface/transformers   # ~382 MB, bir kez
+VERDANDI_SEMANTIC=1 npx verdandi-context-compiler
+```
+
+Açmanın bedeli tablodakinden fazla. Paket kuruluyken ve katman açıkken test
+paketi 30 saniyeden 162 saniyeye çıktı, ve büyük bir projenin ilk indekslemesi
+her dosyayı gömmeyi öder (sonrası `~/.verdandi` altında dosya içeriğine göre
+önbellekli). Bunu on beşte bir görevle tartın.
+
 ### Güvenmediğiniz kodda çalıştırmak
 
 Verðandi'nin işi, indekslenen projenin **ham kaynağını** bir ajanın prompt'una koymaktır. O proje
