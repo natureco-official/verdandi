@@ -3,7 +3,7 @@
 [![CI](https://github.com/natureco-official/verdandi/actions/workflows/ci.yml/badge.svg)](https://github.com/natureco-official/verdandi/actions/workflows/ci.yml)
 [![Lisans: MIT](https://img.shields.io/badge/Lisans-MIT-green.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-blue)]()
-[![Test](https://img.shields.io/badge/test-111%20geçiyor-brightgreen)]()
+[![Test](https://img.shields.io/badge/test-151%20geçiyor-brightgreen)]()
 [![Token](https://img.shields.io/badge/input%20token-%E2%88%9272%25%20ölçüldü-2ea043)]()
 
 **🇬🇧 [English version](README.md)**
@@ -189,6 +189,13 @@ npm install @huggingface/transformers   # ~382 MB, bir kez
 VERDANDI_SEMANTIC=1 npx verdandi-context-compiler
 ```
 
+**Açmadan önce:** paket `onnxruntime-node` ve `sharp` getiriyor; bunlarda
+**düzeltmesi olmayan dört yüksek önem dereceli açık** var (`adm-zip` ve libvips
+CVE-2026-33327/33328/35590/35591). Kurulu olduğu sürece `npm audit` başarısız
+oluyor. Bu, kimse kullanmasın demek değil — ama bilerek verilecek bir karar.
+Bağımlılığın isteğe bağlı peer olmasının ve kilit dosyasında bulunmamasının
+sebebi de bu.
+
 Açmanın bedeli tablodakinden fazla. Paket kuruluyken ve katman açıkken test
 paketi 30 saniyeden 162 saniyeye çıktı, ve büyük bir projenin ilk indekslemesi
 her dosyayı gömmeyi öder (sonrası `~/.verdandi` altında dosya içeriğine göre
@@ -287,7 +294,7 @@ Test paketi kayıt kapalı koşuyor. Önceki hali öyle değildi ve `npm test` d
 ```bash
 npm run typecheck
 npm run lint
-npm test                                   # 111 test
+npm test                                   # 151 test
 node smoke_test.mjs                        # beş araç, canlı
 node benchmark_runs/setup_worktrees.mjs    # benchmark worktree'lerini hazırlar
 CAPSULE_WORKTREE_BASE="<yazdırılan yol>" npm run benchmark:retrieval
@@ -309,6 +316,14 @@ Son bağımsız koşum (28.07.2026, dayanak `cc4b416`):
 | Zorunlu dosya-grubu recall | %95,45 | ≥ %90 |
 | Kabul edilebilir dosya precision | %50,91 | ≥ %50 |
 | Sembol-grubu recall | %53,33 | ≥ %85 |
+
+> **Bu rakamlar 31 Temmuz 2026'daki sıralama değişikliklerinden ÖNCEsine ait** —
+> test dosyası cezasının oransal hâle gelmesi, gövde alan ağırlığının 0,35 → 0,8
+> olması, iç içe depoların ve `.gitignore`'lı dizinlerin indeksten çıkarılması.
+> Dördü de geri getirmeyi etkiliyor ve ölçüm bunlarla yeniden yapılmadı: oracle,
+> yalnızca özgün koşuyu üreten makinede bulunan
+> `/private/tmp/capsule-baseline-worktrees` altındaki worktree'lere ihtiyaç
+> duyuyor. Tabloyu güncel ölçüm değil, **son doğrulanmış** ölçüm olarak okuyun.
 
 Sembol recall eşiğin altında ve sebebi retrieval gerilemesi değil: beklenen dört sembol (`signalProcessGroup`, `stopProcessGroup`, `trimHeaderOws`, `serializeProtocolDocument`) artık depoda yok. Dosyalar duruyor, semboller yeniden adlandırılmış.
 

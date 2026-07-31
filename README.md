@@ -3,7 +3,7 @@
 [![CI](https://github.com/natureco-official/verdandi/actions/workflows/ci.yml/badge.svg)](https://github.com/natureco-official/verdandi/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-blue)]()
-[![Tests](https://img.shields.io/badge/tests-111%20passing-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-151%20passing-brightgreen)]()
 [![Tokens](https://img.shields.io/badge/input%20tokens-−72%25%20measured-2ea043)]()
 
 **🇹🇷 [Türkçe sürüm](README.tr.md)**
@@ -190,6 +190,12 @@ npm install @huggingface/transformers   # ~382 MB, one time
 VERDANDI_SEMANTIC=1 npx verdandi-context-compiler
 ```
 
+**Before you enable it:** the package pulls `onnxruntime-node` and `sharp`, which
+carry four high-severity advisories with no fix available (`adm-zip`, and libvips
+CVE-2026-33327/33328/35590/35591). `npm audit` fails while it is installed. That
+is not a reason nobody should use it, but it is a decision to make deliberately —
+it is why the dependency is a peer marked optional and is not in the lockfile.
+
 Enabling it costs more than the table shows. With the package present and the
 layer on, the test suite went from 30 to 162 seconds and the first index of a
 large project pays for embedding every file (cached afterwards under
@@ -288,7 +294,7 @@ The test suite runs with the log switched off. An earlier version did not, and `
 ```bash
 npm run typecheck
 npm run lint
-npm test                                   # 111 tests
+npm test                                   # 151 tests
 node smoke_test.mjs                        # all five tools, live
 node benchmark_runs/setup_worktrees.mjs    # prepare benchmark worktrees
 CAPSULE_WORKTREE_BASE="<printed path>" npm run benchmark:retrieval
@@ -310,6 +316,14 @@ Most recent independent run (2026-07-28, base `cc4b416`):
 | Required file-group recall | 95.45% | ≥ 90% |
 | Acceptable file precision | 50.91% | ≥ 50% |
 | Symbol-group recall | 53.33% | ≥ 85% |
+
+> **These numbers predate the ranking changes of 2026-07-31** — test-file demotion
+> made proportional, body field weight 0.35 → 0.8, nested repositories and
+> `.gitignore`d directories dropped from the index. All four move retrieval, and
+> the oracle has not been re-run against them: it needs the benchmark worktrees
+> under `/private/tmp/capsule-baseline-worktrees`, which exist only on the machine
+> that produced the original run. Treat the table as the last verified measurement,
+> not as the current one.
 
 Symbol recall sits below its threshold, and the cause is not a retrieval regression: four expected symbols (`signalProcessGroup`, `stopProcessGroup`, `trimHeaderOws`, `serializeProtocolDocument`) no longer exist upstream. The files are still there; the symbols were renamed.
 
