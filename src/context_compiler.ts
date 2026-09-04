@@ -57,6 +57,8 @@ type ProjectIndex = {
   files: IndexedFile[];
   symbols: IndexedSymbol[];
   neighbors: Map<string, Set<string>>;
+  /** file -> files it imports directly (yönlü; `neighbors` yönsüz ve callee kenarlarını da içerir). */
+  importsByFile: Map<string, Set<string>>;
   /** file -> symbols called from that file's symbols (name set). */
   calleesByFile: Map<string, Set<string>>;
   snapshot: string;
@@ -422,6 +424,28 @@ function trKokGenislet(sozcuk: string): readonly string[] | undefined {
 
 /** Query tokens keep task intent words and expand domain synonyms (Verðandi Concept Expansion). */
 export function queryTokens(task: string): string[] {
+  return queryConceptGroups(task).flat();
+}
+
+/** Her sorgu tokenı → ait olduğu kavram grubunun sırası. `queryConceptGroups` ile aynı kaynaktan. */
+export function queryConceptMap(task: string): Map<string, number> {
+  const map = new Map<string, number>();
+  queryConceptGroups(task).forEach((group, i) => { for (const token of group) map.set(token, i); });
+  return map;
+}
+
+/**
+ * Sorgu kavram grupları: kaynak sözcük + o sözcükten türeyen eşanlamlılar tek grup.
+ *
+ * Düz liste (`queryTokens`) eşleşme için doğru birim; kapsama bonusu için değil.
+ * Ölçüldü (5 Eylül 2026, retrieval oracle @ cc4b416): "hata" → error, exception,
+ * fault, bug diye açılınca `conceptCoverageBoost` bunları DÖRT bağımsız kavram
+ * (4×5 puan) sayıyordu. Düzyazı bir `it("... is a server bug and fails loudly")`
+ * başlığı eşanlamlıları toplar, `ReadResourceCallback` gibi bir tanımlayıcı
+ * toplayamaz; T05'te üretim dosyası bu yüzden ilk 20'nin dışına düşüyordu.
+ * Gruplama, 882c072'nin Türkçe kazancını korurken bu çarpanı kaldırır.
+ */
+export function queryConceptGroups(task: string): string[][] {
   const split = normalizeSearchText(task)
     .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
     .replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2")
@@ -432,11 +456,11 @@ export function queryTokens(task: string): string[] {
     "ve", "ile", "icin", "bir", "bu", "et", "kontrol", "durumunu", "raporla",
   ]);
   const seen = new Set<string>();
-  const out: string[] = [];
+  const groups: string[][] = [];
   for (const part of split.split(/[^a-z0-9_$]+/)) {
     if (part.length < 2 || softStop.has(part) || seen.has(part)) continue;
     seen.add(part);
-    out.push(part);
+    const group: string[] = [part];
     const syns = SYNONYM_MAP[part]
       ?? (part.startsWith("test") ? SYNONYM_MAP.test : undefined)
       ?? (part.startsWith("entegrasyon") ? SYNONYM_MAP.entegrasyon : undefined)
@@ -448,12 +472,13 @@ export function queryTokens(task: string): string[] {
       for (const s of syns) {
         if (!seen.has(s)) {
           seen.add(s);
-          out.push(s);
+          group.push(s);
         }
       }
     }
+    groups.push(group);
   }
-  return out;
+  return groups;
 }
 
 function termFrequency(tokens: string[]): Map<string, number> {
@@ -809,11 +834,53 @@ async function ensureSafeDirectory(root: string, segments: string[]): Promise<st
   return current;
 }
 
+const TEST_INTENT_TERMS: ReadonlySet<string> = new Set(["test", "spec", "check", "integration", "regression"]);
+
+/** Bkz. promoteSubjectUnderTest. */
+const SUBJECT_PROMOTION_MIN_RATIO = 0.75;
+
+export function isTestFilePath(file: string): boolean {
+  const lower = file.toLowerCase();
+  return /(^|\/)(test|tests|__tests__|spec|specs)\//.test(lower) || /\.(test|spec)\.(t|j)sx?$/.test(lower);
+}
+// "Başarı kriteri: ... testi geçer" ile başlayan cümle görevin NE olduğunu değil,
+// bittiğinin NASIL anlaşılacağını söyler. Sınır işareti iki dilde de tanınır;
+// eşleşme için metin olduğu gibi kalır, yalnız niyet buradan sonrasını görmez.
+const SUCCESS_CRITERIA_MARKER = /\b(ba[sş]ar[iı]\s+kriter|kabul\s+kriter|success\s+criteri|acceptance\s+criteri|definition\s+of\s+done|done\s+when)/i;
+
+/** Görevin "ne değişecek" kısmı: başarı-kriteri cümlesinden öncesi. */
+export function taskClause(task: string): string {
+  const marker = SUCCESS_CRITERIA_MARKER.exec(task);
+  return marker ? task.slice(0, marker.index) : task;
+}
+
+export function tokensLookLikeTestIntent(query: string[]): boolean {
+  return query.some(term => TEST_INTENT_TERMS.has(term));
+}
+
+/**
+ * Test niyeti YALNIZ görev cümlesinden okunur.
+ *
+ * Ölçüldü (5 Eylül 2026, retrieval oracle, typescript-sdk @ cc4b416): 10 görevin
+ * 8'inde niyet tetikleniyordu ve 5'inde (T05, T06, T07, T09, T10) tetikleyici
+ * yalnız "Başarı kriteri: ... entegrasyon testi doğrular" cümlesiydi. Niyet
+ * açılınca test dosyaları +1.2 alıp cezadan muaf kalıyor, 15 sözcüklük bir
+ * `it("...")` başlığı sorguyu bir bildirimden daha çok kapsıyor ve hedef üretim
+ * dosyası (mcp.ts, responseCache.ts) ilk 20'nin dışına düşüyordu. Kriter
+ * cümlesi sorgudan çıkarılınca aynı dosyalar 3., 2., 3., 1. sıraya çıkıyor.
+ */
+export function hasTestIntent(task: string): boolean {
+  return tokensLookLikeTestIntent(queryTokens(taskClause(task)));
+}
+
 /** Path-aware prior: prefer production source over tests/examples/fixtures. */
-export function pathPrior(relativeFile: string, query: string[]): number {
+export function pathPrior(
+  relativeFile: string,
+  query: string[],
+  testIntent: boolean = tokensLookLikeTestIntent(query),
+): number {
   const file = relativeFile.toLowerCase();
   let score = 0;
-  const testIntent = query.some(term => ["test", "spec", "check", "integration", "regression"].includes(term));
 
   if (/(^|\/)src\//.test(file) || file.startsWith("src/")) score += 1.5;
   if (/(^|\/)(lib|app|packages)\//.test(file)) score += 0.8;
@@ -984,13 +1051,27 @@ function fieldBm25(
   return score * weight;
 }
 
+/** Sıralama bağlamı: görevden bir kez türetilir, her sembol puanına aynı haliyle girer. */
+export interface RankingOptions {
+  /** Test niyeti; verilmezse sorgu tokenlarından çıkarılır (eski davranış). */
+  testIntent?: boolean;
+  /** token → kavram grubu; verilmezse her token ayrı kavram sayılır (eski davranış). */
+  conceptOf?: Map<string, number>;
+}
+
+export function rankingOptions(task: string): RankingOptions {
+  return { testIntent: hasTestIntent(task), conceptOf: queryConceptMap(task) };
+}
+
 /** Rank a symbol against a task query. Exported for unit tests. */
 export function scoreSymbolAgainstQuery(
   symbol: Pick<IndexedSymbol, "symbol" | "file" | "tokens" | "kind">,
   query: string[],
   corpus: { avgdl: number; docFreq: Map<string, number>; docCount: number },
+  options: RankingOptions = {},
 ): number {
   if (query.length === 0) return 0;
+  const testNiyeti = options.testIntent ?? tokensLookLikeTestIntent(query);
 
   const nameScore = fieldBm25(
     query,
@@ -1039,7 +1120,7 @@ export function scoreSymbolAgainstQuery(
     ...symbol.tokens.path,
     ...symbol.tokens.signature,
     ...symbol.tokens.body,
-  ].filter(token => query.includes(token)));
+  ].filter(token => query.includes(token)).map(token => options.conceptOf?.get(token) ?? token));
   const conceptCoverageBoost = Math.min(8, matchedConcepts.size) * 5;
 
   // Prefer concrete declarations over generic "unknown"
@@ -1054,7 +1135,7 @@ export function scoreSymbolAgainstQuery(
   // A path/kind prior may reorder genuine lexical matches, but must never turn
   // every production symbol into a match by itself.
   if (lexicalScore <= 0) return 0;
-  const toplam = lexicalScore + conceptCoverageBoost + pathPrior(symbol.file, query) + kindBoost;
+  const toplam = lexicalScore + conceptCoverageBoost + pathPrior(symbol.file, query, testNiyeti) + kindBoost;
 
   // Test dosyası cezası ORANSAL olmalı, toplamsal değil.
   //
@@ -1068,10 +1149,7 @@ export function scoreSymbolAgainstQuery(
   // Testi yasaklamıyoruz: niyet test olduğunda ceza yok (mevcut davranış), ve
   // ceza dosyayı listeden atmıyor, yalnızca üretim kodunun arkasına koyuyor.
   // Bir testin kendisi doğru cevapsa lexical üstünlüğü bunu yine taşır.
-  const testDosyasi = /(^|\/)(test|tests|__tests__|spec|specs)\//.test(symbol.file.toLowerCase())
-    || /\.(test|spec)\.(t|j)sx?$/.test(symbol.file.toLowerCase());
-  const testNiyeti = query.some(term =>
-    ["test", "spec", "check", "integration", "regression"].includes(term));
+  const testDosyasi = isTestFilePath(symbol.file);
   // 0.75 ölçümle seçildi, tek örneğe uydurularak değil: 16 gerçek görev
   // üzerinde ilk sırada test dosyası çıkma oranı %44'ten %38'e düşüyor ve
   // 0.65/0.55 hiçbir ek kazanç vermiyor. Daha sert bir ceza, testin gerçekten
@@ -1397,16 +1475,19 @@ export class TypeScriptContextCompiler implements ContextCompilerTools {
     };
 
     const neighbors = new Map<string, Set<string>>();
+    const importsByFile = new Map<string, Set<string>>();
     const calleesByFile = new Map<string, Set<string>>();
 
     for (const file of files) {
       const set = neighbors.get(file.relative) ?? new Set<string>();
       const callees = calleesByFile.get(file.relative) ?? new Set<string>();
+      const imported = new Set<string>();
 
       for (const specifier of file.imports) {
         const target = resolveImport(file, specifier);
         if (target) {
           set.add(target);
+          imported.add(target);
           const reverse = neighbors.get(target) ?? new Set<string>();
           reverse.add(file.relative);
           neighbors.set(target, reverse);
@@ -1438,6 +1519,7 @@ export class TypeScriptContextCompiler implements ContextCompilerTools {
       }
 
       neighbors.set(file.relative, set);
+      importsByFile.set(file.relative, imported);
       calleesByFile.set(file.relative, callees);
     }
 
@@ -1468,6 +1550,7 @@ export class TypeScriptContextCompiler implements ContextCompilerTools {
       files,
       symbols,
       neighbors,
+      importsByFile,
       calleesByFile,
       snapshot,
       fileByRelative,
@@ -1485,6 +1568,7 @@ export class TypeScriptContextCompiler implements ContextCompilerTools {
     task: string,
   ): Array<{ symbol: IndexedSymbol; score: number }> {
     const query = queryTokens(task);
+    const ranking = rankingOptions(task);
     const corpus = {
       avgdl: index.avgdl,
       docFreq: index.docFreq,
@@ -1494,7 +1578,7 @@ export class TypeScriptContextCompiler implements ContextCompilerTools {
     const ranked = index.symbols
       .map(symbol => ({
         symbol,
-        score: scoreSymbolAgainstQuery(symbol, query, corpus),
+        score: scoreSymbolAgainstQuery(symbol, query, corpus, ranking),
       }))
       .filter(item => item.score > 0.5)
       .sort(
@@ -1514,7 +1598,40 @@ export class TypeScriptContextCompiler implements ContextCompilerTools {
       unique.push(item);
       if (unique.length >= 20) break;
     }
-    return unique;
+    return this.promoteSubjectUnderTest(index, unique, ranking.testIntent === true);
+  }
+
+  /**
+   * Eşleşen test, test ettiği kodun kanıtıdır.
+   *
+   * Ölçüldü (5 Eylül 2026, retrieval oracle @ cc4b416, T05/T09): niyet test
+   * değilken bile tepeye `it("the cache does not depend on structuredClone
+   * existing")` gibi düzyazı bir başlık çıkıyor — ad alanı 84 puan, kaynak
+   * sınıfının adı 43; on beş sözcüklük bir cümle sekiz sorgu terimini toplar,
+   * `ClientResponseCache` toplayamaz. Ad ağırlığını kırpmak test-cevaplı
+   * görevleri bozdu (hit@1 8→6). Bunun yerine yapısal kanıt kullanılır: tepedeki
+   * test dosyasının DOĞRUDAN import ettiği üretim dosyalarından en iyi sıralı
+   * sembol öne alınır. Test listede kalır, puanlar değişmez; yalnız sıra.
+   *
+   * Yapısal kanıt yakın beraberliği bozar, bozgunu çevirmez: aday, tepenin en az
+   * %75'ini almış olmalı. Ölçüldü (aynı oracle): terfi etmesi gereken adaylar
+   * 0.81 / 0.85 / 0.90, etmemesi gereken (T06, test dosyasının kendisi doğru
+   * cevap ve import ettiği mcpParamHeaders.ts yanlış) 0.69. Eşik bu aralığın
+   * ortası; dört noktadan seçildi, yeni görev setleri geldikçe yeniden ölçülmeli.
+   */
+  private promoteSubjectUnderTest(
+    index: ProjectIndex,
+    ranked: Array<{ symbol: IndexedSymbol; score: number }>,
+    testIntent: boolean,
+  ): Array<{ symbol: IndexedSymbol; score: number }> {
+    if (testIntent || ranked.length < 2) return ranked;
+    const top = ranked[0];
+    if (!isTestFilePath(top.symbol.file)) return ranked;
+    const subjects = index.importsByFile.get(top.symbol.file);
+    if (!subjects || subjects.size === 0) return ranked;
+    const at = ranked.findIndex((item, i) => i > 0 && !isTestFilePath(item.symbol.file) && subjects.has(item.symbol.file));
+    if (at < 0 || ranked[at].score < SUBJECT_PROMOTION_MIN_RATIO * top.score) return ranked;
+    return [ranked[at], ...ranked.slice(0, at), ...ranked.slice(at + 1)];
   }
 
   private pickNeighborSymbols(
@@ -1523,6 +1640,7 @@ export class TypeScriptContextCompiler implements ContextCompilerTools {
     query: string[],
     already: Set<string>,
     limit: number,
+    ranking: RankingOptions,
   ): IndexedSymbol[] {
     const corpus = {
       avgdl: index.avgdl,
@@ -1573,7 +1691,7 @@ export class TypeScriptContextCompiler implements ContextCompilerTools {
             // could be either direction; keep imported default
           }
 
-          const base = scoreSymbolAgainstQuery(neighbor, query, corpus);
+          const base = scoreSymbolAgainstQuery(neighbor, query, corpus, ranking);
           // Even weak path neighbors get a floor so 1-hop is not empty.
           const score = base + bonus + 0.4;
           if (score <= 0.3 && !calledNames.has(neighbor.symbol)) continue;
@@ -1701,7 +1819,7 @@ export class TypeScriptContextCompiler implements ContextCompilerTools {
       score: item.score,
     }));
     const already = new Set(direct.map(s => `${s.file}::${s.symbol}`));
-    const neighbors = this.pickNeighborSymbols(index, direct, query, already, budget.neighbors);
+    const neighbors = this.pickNeighborSymbols(index, direct, query, already, budget.neighbors, rankingOptions(input.task));
     const refs = [...direct, ...neighbors];
 
     // Anlamsal aday EKLEME — sözcüksel sonuçların yerine değil, yanına.

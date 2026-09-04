@@ -313,24 +313,35 @@ Windows joined the matrix on 2026-07-28. Until then only Linux and macOS ran, an
 
 ## Retrieval quality
 
-Most recent independent run (2026-07-28, base `cc4b416`):
+Most recent run (2026-09-05, base `cc4b416`, pinned — same base as the July run):
 
-| Metric | Result | Threshold |
-|---|---:|---:|
-| Primary file `hit@1` | 90.00% | ≥ 90% |
-| Required file-group recall | 95.45% | ≥ 90% |
-| Acceptable file precision | 50.91% | ≥ 50% |
-| Symbol-group recall | 53.33% | ≥ 85% |
+| Metric | 2026-07-28 | 2026-09-05 | Threshold |
+|---|---:|---:|---:|
+| Primary file `hit@1` | 90.00% | **100.00%** | ≥ 90% |
+| Required file-group recall | 95.45% | **90.91%** | ≥ 90% |
+| Acceptable file precision | 50.91% | 48.21% | ≥ 50% — **below** |
+| Symbol-group recall | 53.33% | **100.00%** | ≥ 85% |
 
-> **These numbers predate the ranking changes of 2026-07-31** — test-file demotion
-> made proportional, body field weight 0.35 → 0.8, nested repositories and
-> `.gitignore`d directories dropped from the index. All four move retrieval, and
-> the oracle has not been re-run against them: it needs the benchmark worktrees
-> under `/private/tmp/capsule-baseline-worktrees`, which exist only on the machine
-> that produced the original run. Treat the table as the last verified measurement,
-> not as the current one.
+The July numbers had not seen the ranking changes of 2026-07-31. Re-running the
+oracle on every ranking commit showed they were a real regression, not target
+drift: the Turkish-query fixes (`882c072`, `9b60b44`) took `hit@1` from 90% to
+80% on this English-code benchmark while winning on the Turkish set. The two
+oracles had never been run together. The fix was mechanism, not tuning: test
+intent is now read from the task clause only (a "success criteria: … the
+integration test passes" sentence no longer flips the ranker into test mode),
+synonym expansions count as one concept in the coverage boost, and a matching
+test promotes the production file it imports when the two are within 25% of each
+other. Each step is measured separately in
+[`benchmark_runs/RETRIEVAL-QUALITY-2026-09-05.md`](benchmark_runs/RETRIEVAL-QUALITY-2026-09-05.md).
 
-Symbol recall sits below its threshold, and the cause is not a retrieval regression: four expected symbols (`signalProcessGroup`, `stopProcessGroup`, `trimHeaderOws`, `serializeProtocolDocument`) no longer exist upstream. The files are still there; the symbols were renamed.
+Symbol recall is 100% because seven of the fifteen expected patterns did not
+exist in the pinned source at all (the ceiling was 53%); they were replaced with
+the names that do exist there, each with a file:line citation, and the oracle now
+fails with a separate "ground truth stale" reason whenever a pattern matches
+nothing in the evidence files. Precision sits 1.8 points under its threshold;
+returned noise and accepted files interleave in raw score, so there was no
+evidence for a cutoff, and the labeling call that would lift it (sibling
+`tsdown.config.ts` files as acceptable evidence) was not made unilaterally.
 
 An earlier run reported 100% for `hit@1` and symbol recall, but those numbers **cannot be reproduced** — the commits they were pinned to were never recorded anywhere. That is why the oracle now writes `baseCommit` and `measuredAt` into every result. Details in [`benchmark_runs/RETRIEVAL-QUALITY-2026-07-28.md`](benchmark_runs/RETRIEVAL-QUALITY-2026-07-28.md).
 

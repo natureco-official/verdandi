@@ -43,3 +43,9 @@ node benchmark_runs/setup_worktrees.mjs --commit <sha>
 
 Sabitlenen sürümü bir sonraki raporun içine yazın; aksi hâlde depo ilerledikçe
 sayılar sessizce kayar ve kimse sebebini bilemez.
+
+Karşılaştırılabilir referans: `cc4b41617ce3601b1290d67216ea0b194a3cd9ac`
+(28 Temmuz ve 5 Eylül 2026 raporları bu commit'te). Ground truth'taki sembol
+kalıpları bu commit'e göre yazıldı; oracle bir kalıbı birincil/kabul dosyalarında
+bulamazsa `deadPatterns` alanına yazar ve "ground truth stale" gerekçesiyle
+düşer — bkz. `RETRIEVAL-QUALITY-2026-09-05.md` §4.

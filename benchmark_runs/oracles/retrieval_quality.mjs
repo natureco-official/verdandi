@@ -29,6 +29,15 @@ for (const task of groundTruth.tasks) {
     const expression = new RegExp(pattern, "i");
     return symbols.some(symbol => expression.test(symbol));
   }).length;
+  // Ölü kalıp muhafızı. 5 Eylül 2026: 15 kalıbın 7'si sabitlenen kaynakta hiç
+  // yoktu; sembol recall'ın tavanı %53'tü ve kapı her koşuda "düşerek" hiçbir
+  // şey ölçmüyordu. Ground truth kaynağa göre çürüdüyse bunu retrieval
+  // eksikliğinden ayrı, adıyla bildir.
+  const evidenceFiles = [...new Set([...task.primaryFileGroups.flat(), ...(task.acceptableFiles ?? [])])];
+  const evidenceText = (
+    await Promise.all(evidenceFiles.map(file => readFile(path.join(projectRoot, file), "utf8").catch(() => "")))
+  ).join("\n");
+  const deadPatterns = task.symbolPatterns.filter(pattern => !new RegExp(pattern, "i").test(evidenceText));
   rows.push({
     id: task.id,
     topFile: files[0],
@@ -39,6 +48,7 @@ for (const task of groundTruth.tasks) {
     returnedFiles: files.length,
     symbolHits,
     totalSymbolPatterns: task.symbolPatterns.length,
+    deadPatterns,
   });
 }
 
@@ -100,6 +110,11 @@ console.log(
     2,
   ),
 );
+const dead = rows.flatMap(row => row.deadPatterns.map(pattern => `${row.id}: ${pattern}`));
+if (dead.length > 0) {
+  console.error(`ground truth stale — ${dead.length} symbol pattern(s) match nothing in the pinned source:\n  ${dead.join("\n  ")}`);
+  process.exitCode = 1;
+}
 if (failed.length > 0) {
   console.error(`retrieval quality threshold failed: ${failed.map(([name]) => name).join(", ")}`);
   process.exitCode = 1;

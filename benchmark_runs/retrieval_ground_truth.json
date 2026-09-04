@@ -17,7 +17,7 @@
       "id": "T03",
       "primaryFileGroups": [["test/integration/test/server/cloudflareWorkers.test.ts"]],
       "acceptableFiles": ["test/integration/test/server/cloudflareWorkers.test.ts"],
-      "symbolPatterns": ["(signalProcessGroup|stopProcessGroup)"]
+      "symbolPatterns": ["killWranglerTree"]
     },
     {
       "id": "T04",
@@ -60,7 +60,7 @@
         "packages/core-internal/test/shared/mcpParamHeaders.test.ts",
         "packages/server/test/server/stdHeaderValidation.test.ts"
       ],
-      "symbolPatterns": ["trimHeaderOws", "OWS around standard header"]
+      "symbolPatterns": ["stripHttpOws", "RFC 9110 OWS|OWS is stripped"]
     },
     {
       "id": "T07",
@@ -74,7 +74,7 @@
         "packages/middleware/node/test/streamableHttp.test.ts",
         "packages/server/test/server/streamableHttp.test.ts"
       ],
-      "symbolPatterns": ["stale session ID", "StreamableHTTPClientTransport"]
+      "symbolPatterns": ["session ID", "StreamableHTTPClientTransport"]
     },
     {
       "id": "T08",
@@ -106,7 +106,7 @@
         "packages/client/src/client/client.ts",
         "packages/client/test/client/mcpParamMirroring.test.ts"
       ],
-      "symbolPatterns": ["serializeProtocolDocument", "cache codec round-trips"]
+      "symbolPatterns": ["encodeCacheValue", "round-trip"]
     },
     {
       "id": "T10",
@@ -124,7 +124,7 @@
         "packages/server/test/server/perRequestStreaming.test.ts",
         "packages/server/test/server/streamableHttp.test.ts"
       ],
-      "symbolPatterns": ["keep-alive comments", "WebStandardStreamableHTTPServerTransport"]
+      "symbolPatterns": ["keep-alive comment frames|keepAlive", "WebStandardStreamableHTTPServerTransport"]
     }
   ]
 }
