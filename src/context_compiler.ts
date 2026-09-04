@@ -27,6 +27,8 @@ import {
 } from "../mcp_tools.js";
 
 type IndexedSymbol = SymbolReference & {
+  /** Anlamsal katmandan geldi; puanı kosinüs×10, sözcüksel puanla kıyaslanamaz. */
+  anlamsal?: boolean;
   node: ts.Node;
   sourceFile: ts.SourceFile;
   start: number;
@@ -834,6 +836,73 @@ async function ensureSafeDirectory(root: string, segments: string[]): Promise<st
   return current;
 }
 
+export type TaskLanguage = "tr" | "en";
+const TR_ISARET = /[çğışöüÇĞİŞÖÜ]/;
+// Diakritiksiz Türkçe ("davranisini ve geriye uyumlulugu duzelt") için işlev
+// sözcükleri ve sık ekler; iki isabet yeter. İngilizce metinde bunlar geçmez.
+const TR_SOZCUKLER: ReadonlySet<string> = new Set([
+  "ve", "ile", "icin", "bir", "bu", "su", "ama", "gibi", "olarak", "sonra", "once", "kadar", "daha", "cok",
+  "yerine", "gorev", "kriteri", "kriter", "duzelt", "ekle", "sil", "kaldir", "degistir", "olmali", "gecmeli",
+  "testi", "testleri", "hatasi", "dosya", "dosyalar", "sirasinda", "engelle", "koru", "yap", "yaz", "davranisi",
+  "davranisini", "geriye", "uyumlulugu", "basari", "gerek", "gerekiyor", "calismiyor", "calisiyor", "neden",
+  "nasil", "sadece", "yalniz", "tum", "her", "icinde", "uzerinde", "arasinda", "olsun", "olmasin", "dondur",
+]);
+
+/** Görevin dili. Modele giden her sabit metin (karar, kriter, uyarı) bu dilde üretilir. */
+export function taskLanguage(task: string): TaskLanguage {
+  if (TR_ISARET.test(task)) return "tr";
+  let isabet = 0;
+  for (const part of normalizeSearchText(task).toLowerCase().split(/[^a-z0-9]+/)) {
+    if (TR_SOZCUKLER.has(part) && ++isabet >= 2) return "tr";
+  }
+  return "en";
+}
+
+// Modele giden sabit metinler. 5 Eylül 2026: İngilizce bir görevde bile
+// "zayıf eşleşme, doğrula" ve Türkçe karar/kriter cümleleri dönüyordu —
+// sekiz ajanın ortak derleyicisi için kabul edilemez.
+const METIN = {
+  tr: {
+    kriterTemel: "Son düzenlemeden sonra hedef davranış testi ve ilgili paket kalite kontrolleri yeniden geçmeli.",
+    kriterIzolasyon: "İzolasyon, hata yolunda cleanup, çapraz platform süreç davranışı ve workspace durumunun değişmemesi kontrol edilmeli.",
+    kriterApi: "Public tip/API sözleşmesi, wire/store biçimi, bozuk veri ve geriye uyumluluk etkileri açıkça incelenmeli.",
+    kriterBuild: "Build config yolları, paket sınırları, public import yüzeyi ve declaration çıktısı birlikte doğrulanmalı.",
+    kriterYasam: "Başarısız yanıt, stale state ve tüm kapanış/iptal yaşam döngüsü yolları kontrol edilmeli.",
+    kriterHeader: "Dış header girdisi sınırda bir kez normalize edilmeli; geçerli kenar boşluğu ile geçersiz iç boşluk ayrı test edilmeli.",
+    kriterHata: "Hata public API üzerinden test edilmeli; güvenli ve faydalı kod/mesaj/yapısal bağlam korunmalı.",
+    kriterAuth: "Görevde adı geçen her auth/retry katmanı bağımsız davranış testiyle kapsanmalı.",
+    kararAlgoritma: "BM25 + path-aware ranking ile AST sembolleri ve 1-hop import/call komşuları seçildi.",
+    kararMekanik: (dir: string) => `Bağlam ekonomisi: mekanik import/lint görevi için yalnız en olası dosya yeterlidir. Doğrulamayı ${dir} dizininden hedef dosyaya --fix uygulayıp diff'i okuyarak yap; --fix-dry-run/JSON formatter kullanma.`,
+    kararGenis: "Önce en olası dosyadan başla; kanıt public tip, config, dokümantasyon, komşu test veya yaşam döngüsü etkisi gösteriyorsa kapsamı genişlet.",
+    kararPaket: (dir: string) => `Birincil paket çalışma dizini: ${dir}. Aynı komutu tekrarlama; makine-okunur tam lint/typecheck çıktısını model bağlamına alma.`,
+    zayif: "zayıf eşleşme, doğrula",
+    nedenKapsama: "Sorgu terimlerinin azı sembol/path ile örtüşüyor.",
+    nedenZayif: "En iyi eşleşme skoru zayıf.",
+    nedenBelirsiz: "Eşleşmeler arasında belirsizlik var.",
+    nedenIndeks: "İndeks dosya sayısı veya kaynak boyutu sınırına ulaştı.",
+  },
+  en: {
+    kriterTemel: "After the last edit, the target behaviour test and the package's quality checks must pass again.",
+    kriterIzolasyon: "Check isolation, cleanup on the error path, cross-platform process behaviour, and that workspace state is left unchanged.",
+    kriterApi: "Review the public type/API contract, wire/store format, corrupt data, and backward-compatibility effects explicitly.",
+    kriterBuild: "Verify build config paths, package boundaries, the public import surface, and declaration output together.",
+    kriterYasam: "Check failed responses, stale state, and every close/abort lifecycle path.",
+    kriterHeader: "Normalize external header input once at the boundary; test valid edge whitespace and invalid inner whitespace separately.",
+    kriterHata: "Test the error through the public API; keep the safe and useful code/message/structural context.",
+    kriterAuth: "Cover every auth/retry layer named in the task with its own behaviour test.",
+    kararAlgoritma: "AST symbols and 1-hop import/call neighbours selected by BM25 + path-aware ranking.",
+    kararMekanik: (dir: string) => `Context economy: for a mechanical import/lint task the single most likely file is enough. Verify by applying --fix to the target file from ${dir} and reading the diff; do not use --fix-dry-run or a JSON formatter.`,
+    kararGenis: "Start with the most likely file; widen scope only when evidence points to a public type, config, documentation, a neighbouring test, or a lifecycle effect.",
+    kararPaket: (dir: string) => `Primary package working directory: ${dir}. Do not repeat the same command; keep machine-readable full lint/typecheck output out of the model context.`,
+    zayif: "weak match, verify",
+    nedenKapsama: "Few query terms overlap with symbols or paths.",
+    nedenZayif: "The best match score is weak.",
+    nedenBelirsiz: "The top matches are ambiguous.",
+    nedenIndeks: "The index hit its file-count or source-size limit.",
+  },
+} as const;
+const ALGORITMA_KARARLARI: ReadonlySet<string> = new Set([METIN.tr.kararAlgoritma, METIN.en.kararAlgoritma]);
+
 const TEST_INTENT_TERMS: ReadonlySet<string> = new Set(["test", "spec", "check", "integration", "regression"]);
 
 /** Bkz. promoteSubjectUnderTest. */
@@ -923,33 +992,32 @@ function isNarrowMechanicalTask(query: string[]): boolean {
   return query.includes("import") && query.some(term => ["sort", "order", "arrange", "lint"].includes(term));
 }
 
-function qualityCriteria(task: string, query: string[]): string[] {
+function qualityCriteria(task: string, query: string[], lang: TaskLanguage): string[] {
   const terms = new Set(query);
   const normalized = normalizeSearchText(task).toLowerCase();
-  const criteria = [
-    "Son düzenlemeden sonra hedef davranış testi ve ilgili paket kalite kontrolleri yeniden geçmeli.",
-  ];
+  const m = METIN[lang];
+  const criteria: string[] = [m.kriterTemel];
 
   if (["integration", "workspace", "process", "worker", "temp", "cleanup"].some(term => terms.has(term))) {
-    criteria.push("İzolasyon, hata yolunda cleanup, çapraz platform süreç davranışı ve workspace durumunun değişmemesi kontrol edilmeli.");
+    criteria.push(m.kriterIzolasyon);
   }
   if (["public", "api", "type", "cache", "serialize", "document", "codec"].some(term => terms.has(term))) {
-    criteria.push("Public tip/API sözleşmesi, wire/store biçimi, bozuk veri ve geriye uyumluluk etkileri açıkça incelenmeli.");
+    criteria.push(m.kriterApi);
   }
   if (["declaration", "dts", "bundle", "external", "config", "oom"].some(term => terms.has(term))) {
-    criteria.push("Build config yolları, paket sınırları, public import yüzeyi ve declaration çıktısı birlikte doğrulanmalı.");
+    criteria.push(m.kriterBuild);
   }
   if (["transport", "session", "stream", "http"].some(term => terms.has(term))) {
-    criteria.push("Başarısız yanıt, stale state ve tüm kapanış/iptal yaşam döngüsü yolları kontrol edilmeli.");
+    criteria.push(m.kriterYasam);
   }
   if (terms.has("header")) {
-    criteria.push("Dış header girdisi sınırda bir kez normalize edilmeli; geçerli kenar boşluğu ile geçersiz iç boşluk ayrı test edilmeli.");
+    criteria.push(m.kriterHeader);
   }
   if (["error", "exception", "invalid", "uri", "url"].some(term => terms.has(term))) {
-    criteria.push("Hata public API üzerinden test edilmeli; güvenli ve faydalı kod/mesaj/yapısal bağlam korunmalı.");
+    criteria.push(m.kriterHata);
   }
   if (/\b(auth|401|refresh|retry|token)\b/.test(normalized)) {
-    criteria.push("Görevde adı geçen her auth/retry katmanı bağımsız davranış testiyle kapsanmalı.");
+    criteria.push(m.kriterAuth);
   }
 
   return [...new Set(criteria)].slice(0, 3);
@@ -1157,10 +1225,25 @@ export function scoreSymbolAgainstQuery(
   return testDosyasi && !testNiyeti ? toplam * 0.75 : toplam;
 }
 
-function publicRef(symbol: IndexedSymbol): SymbolReference {
+/**
+ * `score`, kapsül içindeki en iyi sözcüksel eşleşmeye ORANDIR (1.00 = en iyi).
+ *
+ * Eskiden x/(x+10) idi: ölçüldü (5 Eylül 2026, retrieval oracle), 117–250
+ * arası ham puanların hepsi 0,92–0,99'a yapışıyordu; kabul edilen dosya ile
+ * gürültü aynı sayıyı taşıyordu. Anlamsal adaylar kendi ölçeğinde (kosinüs)
+ * kalır — onlar sözcüksel puanla kıyaslanamaz.
+ */
+function publicRefs(list: readonly IndexedSymbol[]): SymbolReference[] {
+  const enIyi = Math.max(0, ...list.filter(s => !s.anlamsal).map(s => s.score ?? 0));
+  return list.map(symbol => publicRef(symbol, enIyi));
+}
+
+function publicRef(symbol: IndexedSymbol, enIyi: number): SymbolReference {
   const normalizedScore = symbol.score === undefined
     ? undefined
-    : Math.max(0, Math.min(1, symbol.score / (symbol.score + 10)));
+    : symbol.anlamsal
+      ? Math.max(0, Math.min(1, symbol.score / 10))
+      : enIyi > 0 ? Math.max(0, Math.min(1, symbol.score / enIyi)) : 0;
   return {
     symbol: symbol.symbol,
     file: symbol.file,
@@ -1255,6 +1338,7 @@ export class TypeScriptContextCompiler implements ContextCompilerTools {
         // aksi hâlde 0–1 arası bir benzerlik, 100'lük skorların yanında
         // anlamsız görünürdü.
         score: aday.benzerlik * 10,
+        anlamsal: true,
       });
     }
     return cikan;
@@ -1718,6 +1802,7 @@ export class TypeScriptContextCompiler implements ContextCompilerTools {
   }
 
   private computeConfidence(
+    lang: TaskLanguage,
     query: string[],
     direct: Array<{ symbol: IndexedSymbol; score: number }>,
   ): { confidence: number; reasons: string[] } {
@@ -1747,9 +1832,9 @@ export class TypeScriptContextCompiler implements ContextCompilerTools {
             d.symbol.file.toLowerCase().includes(q),
           )).length / query.length;
 
-    if (coverage < 0.35) reasons.push("Sorgu terimlerinin azı sembol/path ile örtüşüyor.");
-    if (top < 3) reasons.push("En iyi eşleşme skoru zayıf.");
-    if (margin < 0.75 && direct.length > 3) reasons.push("Eşleşmeler arasında belirsizlik var.");
+    if (coverage < 0.35) reasons.push(METIN[lang].nedenKapsama);
+    if (top < 3) reasons.push(METIN[lang].nedenZayif);
+    if (margin < 0.75 && direct.length > 3) reasons.push(METIN[lang].nedenBelirsiz);
 
     let confidence =
       0.42 +
@@ -1787,16 +1872,19 @@ export class TypeScriptContextCompiler implements ContextCompilerTools {
       throw new RangeError("maxModelPayloadTokens must be an integer between 200 and 1200");
     }
     const index = await this.getOrCreateIndex(input.projectRoot);
+    const lang = taskLanguage(input.task);
+    const m = METIN[lang];
     const query = queryTokens(input.task);
     const ranked = this.rankSymbols(index, input.task);
 
     let { confidence, reasons } = this.computeConfidence(
+      lang,
       query,
       ranked.slice(0, 8),
     );
     if (index.truncated) {
       confidence = Math.min(confidence, 0.68);
-      reasons = [...reasons, "İndeks dosya sayısı veya kaynak boyutu sınırına ulaştı."];
+      reasons = [...reasons, m.nedenIndeks];
     }
 
     const handoff = attempt >= maximum;
@@ -1849,23 +1937,20 @@ export class TypeScriptContextCompiler implements ContextCompilerTools {
 
     const payload = {
       goal: input.task.slice(0, 240),
-      relevantSymbols: refs.slice(0, 16).map(publicRef),
+      relevantSymbols: publicRefs(refs.slice(0, 16)),
       probableFiles: [...new Set(refs.map(ref => ref.file))].slice(0, 12),
       decisions: [
         {
-          summary:
-            "BM25 + path-aware ranking ile AST sembolleri ve 1-hop import/call komşuları seçildi.",
+          summary: m.kararAlgoritma,
         },
         {
-          summary: narrowMechanicalTask
-            ? `Bağlam ekonomisi: mekanik import/lint görevi için yalnız en olası dosya yeterlidir. Doğrulamayı ${primaryPackageDir} dizininden hedef dosyaya --fix uygulayıp diff'i okuyarak yap; --fix-dry-run/JSON formatter kullanma.`
-            : "Önce en olası dosyadan başla; kanıt public tip, config, dokümantasyon, komşu test veya yaşam döngüsü etkisi gösteriyorsa kapsamı genişlet.",
+          summary: narrowMechanicalTask ? m.kararMekanik(primaryPackageDir) : m.kararGenis,
         },
         {
-          summary: `Birincil paket çalışma dizini: ${primaryPackageDir}. Aynı komutu tekrarlama; makine-okunur tam lint/typecheck çıktısını model bağlamına alma.`,
+          summary: m.kararPaket(primaryPackageDir),
         },
       ],
-      successCriteria: [input.task.slice(0, 180), ...qualityCriteria(input.task, query)],
+      successCriteria: [input.task.slice(0, 180), ...qualityCriteria(input.task, query, lang)],
       // Zayıflık ajana SÖYLENİR. Gerekçeler zaten hesaplanıyordu ama yalnızca
       // `_meta`'ya gidiyordu; ajanın okuduğu yer burası.
       // Bir alan, bir cümle. Payload'ın katı bir bayt bütçesi var (bütçe
@@ -1873,7 +1958,7 @@ export class TypeScriptContextCompiler implements ContextCompilerTools {
       // kırpılacak yer yok. Gerekçe listesi ile güven skoru orkestrasyon
       // için `_meta`'da duruyor; modelin ihtiyacı olan tek şey durup
       // doğrulaması gerektiği.
-      ...(reasons.length > 0 ? { retrievalWeak: "zayıf eşleşme, doğrula" } : {}),
+      ...(reasons.length > 0 ? { retrievalWeak: m.zayif } : {}),
     };
 
     // Bütçe yalnızca SEMBOL atarak uygulanıyordu ve döngü son sembolde
@@ -1887,26 +1972,39 @@ export class TypeScriptContextCompiler implements ContextCompilerTools {
     // `estimatedPayloadTokens` doğruyu söylüyor ama kimse ona bakıp
     // "vaadimi tutamadım" demiyordu.
     //
-    // Sıra, ajanın işine yaramayana göre: önce fazla semboller, sonra kendi
-    // algoritmamızı anlatan karar metni (göreve sıfır katkısı var), sonra
-    // fazladan başarı kriterleri. Hedef ve en az bir sembol asla atılmaz —
-    // onlar atılırsa kapsül zaten kapsül olmaktan çıkar.
+    // Sıra, ajanın işine yaramayana göre: önce uzun test başlıkları kısalır,
+    // sonra kendi algoritmamızı anlatan karar metni gider (göreve sıfır katkısı
+    // var), sonra fazladan başarı kriterleri, EN SON fazla semboller. Hedef ve
+    // en az bir sembol asla atılmaz — onlar atılırsa kapsül olmaktan çıkar.
     const butceBaytI = payloadTokenLimit * 4;
     const asiyorMu = () => JSON.stringify(payload).length > butceBaytI;
 
-    while (asiyorMu() && payload.relevantSymbols.length > 1) {
-      payload.relevantSymbols.pop();
-      payload.probableFiles = [...new Set(payload.relevantSymbols.map(ref => ref.file))];
+    // Önce uzun test başlıkları kısaltılır; sembol atmak son çaredir. Ölçüldü
+    // (5 Eylül 2026): 250 token'lık seviye-1 bütçesini tek bir 15 sözcüklük
+    // it("...") başlığı dolduruyor ve `direct: 3` vaadine rağmen listede TEK
+    // sembol kalıyordu. Kısaltılmış başlık grep için hâlâ yeterli bir ön ektir.
+    if (asiyorMu()) {
+      for (const ref of payload.relevantSymbols) {
+        if (ref.kind === "test" && ref.symbol.length > 96) ref.symbol = `${ref.symbol.slice(0, 95)}…`;
+      }
     }
     // Seçim algoritmasını anlatan karar, görevi yapan ajana hiçbir şey
     // katmıyor; bütçe sıkışınca ilk gidecek olan odur.
     if (asiyorMu() && payload.decisions.length > 1) {
       payload.decisions = payload.decisions.filter(
-        karar => !karar.summary.startsWith("BM25 + path-aware ranking"),
+        karar => !ALGORITMA_KARARLARI.has(karar.summary),
       );
     }
     while (asiyorMu() && payload.successCriteria.length > 1) {
       payload.successCriteria.pop();
+    }
+    // Semboller EN SON gider: onlar kanıtın kendisi. Ölçüldü (5 Eylül 2026):
+    // seviye 1'de kalıp metinler (üç karar + kriterler) 250 token'ın ~200'ünü
+    // alıyor; semboller önce atılınca `direct: 3` vaadine rağmen tek sembol
+    // kalıyordu — kapsül algoritmasını anlatıp kanıtı saklıyordu.
+    while (asiyorMu() && payload.relevantSymbols.length > 1) {
+      payload.relevantSymbols.pop();
+      payload.probableFiles = [...new Set(payload.relevantSymbols.map(ref => ref.file))];
     }
     // Kalan kararlar ATILMAZ. İlk denemede sondan karar atıyordum ve mekanik
     // import/lint görevlerine özel rehberliği siliyordu — mevcut bir test bunu

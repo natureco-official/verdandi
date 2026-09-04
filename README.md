@@ -187,6 +187,13 @@ One task per language. The two are complementary rather than ranked -- on a
 subset of eight, each finds three the other misses -- so semantic results are
 added beside the lexical ones, never in place of them.
 
+Whatever the ranking layer, the capsule's own text follows the task's language:
+decisions, success criteria, the weak-match warning and the uncertainty reasons
+are emitted in English for an English task and in Turkish for a Turkish one
+(detected from diacritics or Turkish function words). `score` is relative to the
+best lexical match in the capsule (1.00 = best); semantic candidates keep their
+cosine similarity.
+
 It is off by default, and the dependency is not installed by default either:
 
 ```bash

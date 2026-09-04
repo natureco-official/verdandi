@@ -13,8 +13,8 @@ Seviye 3 / 1200 token. Verðandi çalışma ağacı: bu raporla aynı commit.
 | Kabul edilebilir dosya precision | %50,91 | %46,43 | %48,21 | ≥ %50 — **kaldı** |
 | Sembol-grubu recall | %53,33 | %46,67 | **%100,00** | ≥ %85 |
 
-Dört eşikten üçü geçiyor. Precision eşiğin 1,8 puan altında; aşağıda neden
-dokunulmadığı yazılı.
+Dört eşikten üçü geçiyor. Precision eşiğin 1,8 puan altında; §5'te neden
+dokunulmadığı yazılı. Oracle'ın görmediği üç kapsül kusuru §6'da.
 
 ## 1. Gerileme gerçekti ve Verðandi'nin kendisindendi
 
@@ -106,6 +106,17 @@ için tek taraflı verilmedi.
 
 Yan bulgu: modele giden `score`, `x/(x+10)` ile normalize ediliyor; 117–250 arası
 ham puanların hepsi 0,92–0,96'ya yapışıyor. Alan bilgi taşımıyor. Ayrı iş.
+
+## 6. Kapsülün kendisi (oracle'ın ölçmediği üç kusur, aynı gün kapatıldı)
+
+| Kusur | Kanıt | Düzeltme | Doğrulama |
+|---|---|---|---|
+| İngilizce göreve Türkçe karar/kriter/uyarı metni | Ekipman360 EN sorgusu: `retrieval_weak: "zayıf eşleşme, doğrula"`, üç Türkçe karar | `taskLanguage` (diakritik ya da ≥2 Türkçe işlev sözcüğü) + iki dilli `METIN` tablosu; gerekçeler dahil | Test: EN kapsül JSON'unda tek Türkçe harf yok; TR kapsül Türkçe kalır |
+| `score` bilgi taşımıyor | x/(x+10): 117–250 ham puan → 0,92–0,99; kabul ile gürültü aynı | Kapsül içi en iyi sözcüksel eşleşmeye oran (1,00 = en iyi); anlamsal adaylar kosinüs ölçeğinde | Ekipman360 EN: 0,893-dümdüz → 0,99 / 0,98 / 0,95 / 0,91 / 0,89 |
+| Seviye-1'de tek sembol | 250 token'ın ~200'ü kalıp metin; kod önce SEMBOL atıyordu | Sıra: uzun test başlığı kısalt (96) → algoritma kararı → fazla kriter → en son sembol | Test: uzun başlıklı fixture'da ≥2 sembol, ≤250 token; Ekipman360 TR: 1 → 2 sembol, 219 token |
+
+Oracle bu değişikliklerden sonra birebir aynı (100 / 90,91 / 48,21 / 100): seviye 3 /
+1200 token'da kırpma ve dil devreye girmiyor — beklenen.
 
 ## Yeniden üretmek
 
