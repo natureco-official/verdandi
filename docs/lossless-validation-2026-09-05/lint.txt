@@ -1,0 +1,67 @@
+
+> verdandi-context-compiler@0.2.0 lint
+> npm run typecheck && node scripts/lint.mjs && node scripts/ajan-tablosu-kontrol.mjs
+
+
+> verdandi-context-compiler@0.2.0 typecheck
+> tsc -p tsconfig.json
+
+Static safety lint passed.
+Kaynak: MCP 9 ajan (1 çekinceli), enjeksiyon 9 ajan
+  ✓ AGENTS kaydı ayrıştırıldı
+  ✓ case blokları ayrıştırıldı
+  ✓ codex: tabloda görünen adı tanımlı
+  ✓ claude: tabloda görünen adı tanımlı
+  ✓ opencode: tabloda görünen adı tanımlı
+  ✓ natureco: tabloda görünen adı tanımlı
+  ✓ hermes: tabloda görünen adı tanımlı
+  ✓ openclaw: tabloda görünen adı tanımlı
+  ✓ kimi: tabloda görünen adı tanımlı
+  ✓ glm: tabloda görünen adı tanımlı
+  ✓ antigravity: tabloda görünen adı tanımlı
+
+README.md
+  ✓ tablo 9 satır, kayıt 9 ajan
+  ✓ Codex CLI: MCP sütunu kayıtla tutarlı (✅)
+  ✓ Codex CLI: enjeksiyon sütunu ✅, kabukta var
+  ✓ Claude Code: MCP sütunu kayıtla tutarlı (✅)
+  ✓ Claude Code: enjeksiyon sütunu ✅, kabukta var
+  ✓ OpenCode: MCP sütunu kayıtla tutarlı (✅)
+  ✓ OpenCode: enjeksiyon sütunu ✅, kabukta var
+  ✓ NatureCo CLI: MCP sütunu kayıtla tutarlı (✅)
+  ✓ NatureCo CLI: enjeksiyon sütunu ✅, kabukta var
+  ✓ Hermes: MCP sütunu kayıtla tutarlı (✅)
+  ✓ Hermes: enjeksiyon sütunu ✅, kabukta var
+  ✓ OpenClaw: MCP sütunu kayıtla tutarlı (✅)
+  ✓ OpenClaw: enjeksiyon sütunu ✅, kabukta var
+  ✓ Kimi CLI: MCP sütunu kayıtla tutarlı (✅)
+  ✓ Kimi CLI: enjeksiyon sütunu ✅, kabukta var
+  ✓ GLM CLI: MCP sütunu kayıtla tutarlı (⚠️)
+  ✓ GLM CLI: kayıt komutu çekinceli, tablo ⚠️ olmalı (⚠️)
+  ✓ GLM CLI: enjeksiyon sütunu ✅, kabukta var
+  ✓ Antigravity: MCP sütunu kayıtla tutarlı (⚠️)
+  ✓ Antigravity: enjeksiyon sütunu ✅, kabukta var
+
+README.tr.md
+  ✓ tablo 9 satır, kayıt 9 ajan
+  ✓ Codex CLI: MCP sütunu kayıtla tutarlı (✅)
+  ✓ Codex CLI: enjeksiyon sütunu ✅, kabukta var
+  ✓ Claude Code: MCP sütunu kayıtla tutarlı (✅)
+  ✓ Claude Code: enjeksiyon sütunu ✅, kabukta var
+  ✓ OpenCode: MCP sütunu kayıtla tutarlı (✅)
+  ✓ OpenCode: enjeksiyon sütunu ✅, kabukta var
+  ✓ NatureCo CLI: MCP sütunu kayıtla tutarlı (✅)
+  ✓ NatureCo CLI: enjeksiyon sütunu ✅, kabukta var
+  ✓ Hermes: MCP sütunu kayıtla tutarlı (✅)
+  ✓ Hermes: enjeksiyon sütunu ✅, kabukta var
+  ✓ OpenClaw: MCP sütunu kayıtla tutarlı (✅)
+  ✓ OpenClaw: enjeksiyon sütunu ✅, kabukta var
+  ✓ Kimi CLI: MCP sütunu kayıtla tutarlı (✅)
+  ✓ Kimi CLI: enjeksiyon sütunu ✅, kabukta var
+  ✓ GLM CLI: MCP sütunu kayıtla tutarlı (⚠️)
+  ✓ GLM CLI: kayıt komutu çekinceli, tablo ⚠️ olmalı (⚠️)
+  ✓ GLM CLI: enjeksiyon sütunu ✅, kabukta var
+  ✓ Antigravity: MCP sütunu kayıtla tutarlı (⚠️)
+  ✓ Antigravity: enjeksiyon sütunu ✅, kabukta var
+
+Ajan tablosu kaynakla uyumlu.

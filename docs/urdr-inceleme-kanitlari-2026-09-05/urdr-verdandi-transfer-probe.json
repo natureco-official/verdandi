@@ -1,0 +1,11 @@
+{
+  "scope": "Synthetic transport test only; no agent/model task or quality evaluation",
+  "encoding": "cl100k_base",
+  "fullResponseTokens": 125015,
+  "parkedResponseTokens": 124,
+  "unchangedResponseTokens": 91,
+  "exactRecovery": true,
+  "oneFetchedJsonLineTokens": 131062,
+  "changedHunksTokens": 84,
+  "deltaReconstructionExact": true
+}

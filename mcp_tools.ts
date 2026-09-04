@@ -7,6 +7,8 @@
  * `modelPayload` to model-visible content and MUST keep `_meta` adapter-only.
  */
 
+import type { ReadEvidenceInput, EvidencePage } from "./src/evidence_store.js";
+
 export type BudgetLevel = 0 | 1 | 2 | 3;
 export type SymbolKind =
   | "function"
@@ -468,6 +470,7 @@ export interface RollbackPatchOutput {
 }
 
 export interface ContextCompilerTools {
+  read_evidence(input: ReadEvidenceInput): Promise<EvidencePage>;
   context_capsule(input: ContextCapsuleInput): Promise<ContextCapsuleOutput>;
   read_symbol(input: ReadSymbolInput): Promise<ReadSymbolOutput>;
   apply_structured_patch(
@@ -484,6 +487,7 @@ export const MCP_TOOL_NAMES = [
   "apply_structured_patch",
   "rollback_patch",
   "validate_delta",
+  "read_evidence",
 ] as const;
 
 export type McpToolName = (typeof MCP_TOOL_NAMES)[number];

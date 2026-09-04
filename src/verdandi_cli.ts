@@ -5,6 +5,7 @@
  * Usage:
  *   verdandi-agent "Import sıralamasını düzelt" --project /path --model gpt-4o
  */
+import { createUrdrMemoryProvider } from "./urdr_bridge.js";
 import { runAgent } from "./verdandi_agent.js";
 
 const args = process.argv.slice(2);
@@ -22,6 +23,9 @@ for (let i = 0; i < args.length; i++) {
     flags.baseUrl = args[++i];
   } else if (args[i] === "--max-retries") {
     flags.maxRetries = args[++i];
+  } else if (["--max-prompt-tokens", "--max-total-tokens", "--max-output-tokens", "--urdr-server", "--memory-root"].includes(args[i])) {
+    const key = args[i].slice(2);
+    flags[key] = args[++i];
   } else if (args[i] === "--verbose" || args[i] === "-v") {
     flags.verbose = "true";
   } else if (args[i] === "--dry-run") {
@@ -39,6 +43,11 @@ Options:
   --api-key <key>          API key (or VERDANDI_API_KEY env)
   --base-url <url>         API base URL (default: OpenAI)
   --max-retries <n>        Max retries (default: 3)
+  --max-prompt-tokens <n>  Per-request serialized prompt budget (default: 8000)
+  --max-total-tokens <n>   Total local reservation budget (default: 16000)
+  --max-output-tokens <n>  Per-response output allowance (default: 2000)
+  --urdr-server <path>     Optional local Urdr mcp-server.mjs
+  --memory-root <path>     Explicit project memory tree; used with --urdr-server
   --verbose, -v            Verbose output
   --dry-run                Show edits without applying
   --help, -h               Show this help
@@ -63,6 +72,10 @@ if (!task) {
   process.exit(1);
 }
 
+if (!!flags["urdr-server"] !== !!flags["memory-root"]) {
+  console.error("--urdr-server and --memory-root must be supplied together");
+  process.exit(1);
+}
 const config = {
   apiKey: flags.apiKey || process.env.VERDANDI_API_KEY || process.env.URDR_API_KEY || "",
   model: flags.model || process.env.VERDANDI_MODEL || process.env.URDR_MODEL || "gpt-4o",
@@ -70,6 +83,12 @@ const config = {
   maxRetries: parseInt(flags.maxRetries || "3", 10),
   verbose: flags.verbose === "true" || process.env.VERDANDI_VERBOSE === "1" || process.env.URDR_VERBOSE === "1",
   dryRun: flags.dryRun === "true",
+  maxPromptTokens: Number(flags["max-prompt-tokens"] ?? 8000),
+  maxTotalTokens: Number(flags["max-total-tokens"] ?? 16000),
+  maxOutputTokens: Number(flags["max-output-tokens"] ?? 2000),
+  ...(flags["urdr-server"] && flags["memory-root"] ? { memoryProvider: createUrdrMemoryProvider({
+    serverPath: flags["urdr-server"], memoryRoot: flags["memory-root"], projectRoot: flags.project || process.cwd(),
+  }) } : {}),
 };
 
 const projectRoot = flags.project || process.cwd();
@@ -86,7 +105,7 @@ const result = await runAgent(task, projectRoot, config);
 console.error(`\n${"─".repeat(60)}`);
 
 if (result.success) {
-  console.error(`✅ Success (${Math.round(result.durationMs / 1000)}s)`);
+  console.error(`${config.dryRun ? "🔍 Proposal only" : "✅ Project checks passed"} (${Math.round(result.durationMs / 1000)}s)`);
   console.error(`   Edits: ${result.edits.length}`);
   if (result.validated) {
     console.error(`   Validation: ${result.validationPassed ? "PASSED ✅" : "FAILED ❌"}`);

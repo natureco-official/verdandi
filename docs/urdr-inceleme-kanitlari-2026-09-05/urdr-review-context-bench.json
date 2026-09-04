@@ -1,0 +1,53 @@
+[
+  {
+    "label": "olgun (4 kök)",
+    "shape": {
+      "roots": 4,
+      "branchesPerRoot": 7,
+      "leavesPerBranch": 40
+    },
+    "leaves": 1120,
+    "edges": 2343,
+    "buildMs": 18,
+    "sessionOldTokens": 34657,
+    "sessionNewTokens": 375,
+    "sessionFactor": 92,
+    "lookupOldTokens": 14967,
+    "lookupNewTokens": 576,
+    "lookupFactor": 26
+  },
+  {
+    "label": "büyük (10 kök)",
+    "shape": {
+      "roots": 10,
+      "branchesPerRoot": 9,
+      "leavesPerBranch": 50
+    },
+    "leaves": 4500,
+    "edges": 9449,
+    "buildMs": 25,
+    "sessionOldTokens": 53136,
+    "sessionNewTokens": 375,
+    "sessionFactor": 142,
+    "lookupOldTokens": 24261,
+    "lookupNewTokens": 576,
+    "lookupFactor": 42
+  },
+  {
+    "label": "devasa (12 kök)",
+    "shape": {
+      "roots": 12,
+      "branchesPerRoot": 10,
+      "leavesPerBranch": 75
+    },
+    "leaves": 9000,
+    "edges": 18913,
+    "buildMs": 44,
+    "sessionOldTokens": 85157,
+    "sessionNewTokens": 375,
+    "sessionFactor": 227,
+    "lookupOldTokens": 40370,
+    "lookupNewTokens": 576,
+    "lookupFactor": 70
+  }
+]

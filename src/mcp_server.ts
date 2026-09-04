@@ -13,6 +13,7 @@ const SERVER_INFO = { name: "verdandi-context-compiler", version: "0.2.0" } as c
 const stringField = { type: "string" } as const;
 const integerField = { type: "integer" } as const;
 const toolDescriptions: Record<string, string> = {
+  read_evidence: "Read lossless code pages bounded by cl100k_base tokens. Start with an indexed file and optional symbol; continue using ref and nextOffset. knownRef is allowed only when the COMPLETE artifact is still in your current context. Old refs preserve their original snapshot. previousRef plus file returns a paged, hash-checked prefix/suffix delta; reconstruct its JSON from source pages before applying it.",
   context_capsule: "Select a compact task-specific file/symbol capsule. Start with probable_files[0]; do not automatically read every returned symbol.",
   read_symbol: "Read one symbol only when source evidence is still missing. Prefer maxTokens <= 800 and includeCallGraphNeighbors=false; avoid rereading files already inspected.",
   apply_structured_patch: "Apply an atomic symbol-level TypeScript patch with snapshot/hash preconditions and rollback support.",
@@ -20,6 +21,13 @@ const toolDescriptions: Record<string, string> = {
   validate_delta: "Run approved root package scripts only. Call only after confirming the root package.json defines each requested script; keep diagnostics bounded.",
 };
 const toolSchemas = {
+  read_evidence: { type: "object", additionalProperties: false, required: ["projectRoot"], properties: {
+    projectRoot: { type: "string", minLength: 1, maxLength: 4096 },
+    file: { type: "string", minLength: 1, maxLength: 4096 }, symbol: { type: "string", minLength: 1, maxLength: 1024 },
+    previousRef: { type: "string", pattern: "^ev_[a-f0-9]{64}$" },
+    ref: { type: "string", pattern: "^ev_[a-f0-9]{64}$" }, knownRef: { type: "string", pattern: "^ev_[a-f0-9]{64}$" },
+    offset: { type: "integer", minimum: 0 }, maxTokens: { type: "integer", minimum: 300, maximum: 4000 },
+  } },
   context_capsule: { type: "object", additionalProperties: false, required: ["task", "projectRoot"], properties: {
     task: { type: "string", minLength: 1, maxLength: 20_000, pattern: ".*\\S.*" }, projectRoot: { type: "string", minLength: 1, maxLength: 4_096 },
     preferredBudgetLevel: { type: "integer", enum: [0, 1, 2, 3] }, maxModelPayloadTokens: { type: "integer", minimum: 200, maximum: 1200 },
@@ -219,6 +227,7 @@ input.on("line", async line => {
       try {
         if (name === "context_capsule") value = mapContextCapsule(await tools.context_capsule(args), "serialize");
         else if (name === "read_symbol") value = await tools.read_symbol(args);
+        else if (name === "read_evidence") value = await tools.read_evidence(args);
         else if (name === "apply_structured_patch") value = await tools.apply_structured_patch(args);
         else if (name === "rollback_patch") value = await tools.rollback_patch(args);
         else if (name === "validate_delta") value = await tools.validate_delta(args);

@@ -3,11 +3,12 @@
  *
  * Flow: capsule → read symbols → LLM call → parse edits → patch → validate → retry
  */
-import { promises as fs } from "node:fs";
-import path from "node:path";
 import { TypeScriptContextCompiler } from "./context_compiler.js";
 import { buildMessages, estimatePromptTokens, type PromptInput } from "./llm_prompt.js";
 import { parseLLMOutput, type EditOperation } from "./llm_parser.js";
+import { countTokens } from "./token_budget.js";
+import type { MemoryProvider } from "./urdr_bridge.js";
+import type { EvidencePage } from "./evidence_store.js";
 import type { StructuredPatchOperation } from "../mcp_tools.js";
 
 export interface AgentConfig {
@@ -19,9 +20,27 @@ export interface AgentConfig {
   verbose: boolean;
   dryRun: boolean;
   llmCaller?: typeof callLLM;
+  memoryProvider?: MemoryProvider;
+  maxOutputTokens: number;
+  maxTotalTokens: number;
+  /** Host-owned behavioral verification; required for accepting an empty edit list. */
+  taskVerifier?: (projectRoot: string, task: string) => Promise<{ passed: boolean; diagnostics?: string[] }>;
+}
+
+export interface RequestUsage {
+  attempt: number;
+  localInputTokens: number;
+  outputAllowance: number;
+  status: "failed" | "completed";
+  inputTokens?: number;
+  outputTokens?: number;
+  cachedInputTokens?: number;
+  source: "provider" | "local-estimate";
 }
 
 export interface AgentResult {
+  completionEvidence?: "unverified" | "proposal" | "project-checks" | "task-verifier";
+  usage?: { encoding: "cl100k_base"; reservedTotalTokens: number; requests: RequestUsage[] };
   success: boolean;
   task: string;
   attempts: number;
@@ -48,6 +67,8 @@ const DEFAULT_CONFIG: AgentConfig = {
   maxPromptTokens: 8000,
   verbose: false,
   dryRun: false,
+  maxOutputTokens: 2000,
+  maxTotalTokens: 16000,
 };
 const MAX_LLM_RESPONSE_BYTES = 8 * 1024 * 1024;
 
@@ -77,7 +98,7 @@ async function readResponseText(response: Response): Promise<string> {
 async function callLLM(
   messages: Array<{ role: string; content: string }>,
   config: AgentConfig,
-): Promise<{ content: string; tokens: { prompt: number; output: number } }> {
+): Promise<{ content: string; tokens: { prompt: number; output: number; cachedInput?: number }; usageKnown?: boolean }> {
   const controller = new AbortController();
   const configuredTimeout = Number(process.env.VERDANDI_REQUEST_TIMEOUT_MS ?? process.env.URDR_REQUEST_TIMEOUT_MS ?? 180000);
   if (!Number.isFinite(configuredTimeout) || configuredTimeout < 1_000 || configuredTimeout > 30 * 60 * 1_000) {
@@ -86,6 +107,7 @@ async function callLLM(
   const timeoutMs = configuredTimeout;
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
   let response;
+  let responseText: string;
   try {
     response = await fetch(`${config.baseUrl}/chat/completions`, {
       method: "POST",
@@ -97,16 +119,16 @@ async function callLLM(
         model: config.model,
         messages,
         temperature: 0.1,
-        max_tokens: 16384,
+        max_tokens: config.maxOutputTokens,
         ...(config.model.toLowerCase().includes("minimax") ? { thinking: { type: "adaptive" } } : {}),
       }),
       signal: controller.signal,
     });
+    responseText = await readResponseText(response);
   } finally {
     clearTimeout(timeoutId);
   }
 
-  const responseText = await readResponseText(response);
   if (!response.ok) {
     const text = responseText;
     throw new Error(`LLM API error ${response.status}: ${text.substring(0, 200)}`);
@@ -139,30 +161,17 @@ async function callLLM(
 
   return {
     content,
+    usageKnown: Number.isFinite(data.usage?.prompt_tokens) && Number.isFinite(data.usage?.completion_tokens),
     tokens: {
       prompt: data.usage?.prompt_tokens ?? 0,
       output: data.usage?.completion_tokens ?? 0,
+      cachedInput: data.usage?.prompt_tokens_details?.cached_tokens,
     },
   };
 }
 
 function log(verbose: boolean, ...args: unknown[]) {
   if (verbose) console.error("[verdandi]", ...args);
-}
-
-async function resolveProjectPath(projectRoot: string, file: string): Promise<string> {
-  const root = path.resolve(projectRoot);
-  const absolute = path.resolve(root, file);
-  const relative = path.relative(root, absolute);
-  if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) {
-    throw new Error(`Refusing to access file outside project root: ${file}`);
-  }
-  const [realRoot, realFile] = await Promise.all([fs.realpath(root), fs.realpath(absolute)]);
-  const realRelative = path.relative(realRoot, realFile);
-  if (!realRelative || realRelative.startsWith("..") || path.isAbsolute(realRelative)) {
-    throw new Error(`Refusing to access symlink outside project root: ${file}`);
-  }
-  return absolute;
 }
 
 export async function runAgent(
@@ -185,6 +194,8 @@ export async function runAgent(
   let validationPassed = false;
   let attemptsUsed = 0;
   let finalRollbackToken: string | undefined;
+  let consumedTokens = 0;
+  const requests: RequestUsage[] = [];
 
   if (typeof task !== "string" || !task.trim() || task.length > 20_000) {
     return {
@@ -229,6 +240,10 @@ export async function runAgent(
   }
 
   try {
+    if (!Number.isInteger(config.maxOutputTokens) || config.maxOutputTokens < 64 || config.maxOutputTokens > 16384 ||
+        !Number.isInteger(config.maxTotalTokens) || config.maxTotalTokens < 512 || config.maxTotalTokens > 1_000_000) {
+      throw new RangeError("Invalid output or total token budget");
+    }
     log(config.verbose, "Starting agent for task:", task.substring(0, 60));
 
   // ── Step 1: Generate capsule ────────────────────────────────────
@@ -246,64 +261,32 @@ export async function runAgent(
   // ── Step 2: Read each symbol ────────────────────────────────────
   log(config.verbose, "Step 2: Reading symbols...");
   const symbolSources: PromptInput["symbols"] = [];
-  let totalSourceLength = 0;
-
-  // Read smart slices from probableFiles
-  // Import sorting → first 100 lines; symbol edits → specific regions
-  const filesRead = new Set<string>();
+  const filePages = new Map<string, EvidencePage>();
+  const pageKey = (file: string, symbol?: string) => `${file}\0${symbol ?? ""}`;
+  const addPage = (page: EvidencePage, symbol = page.file) => {
+    symbolSources.push({
+      symbol, file: page.file, kind: "module", source: page.source,
+      startLine: 1, endLine: 1, hopDistance: 0,
+      offset: page.offset, nextOffset: page.nextOffset, done: page.done, ref: page.ref,
+    });
+  };
   for (const file of capsule.modelPayload.probableFiles.slice(0, 4)) {
-    const absPath = await resolveProjectPath(projectRoot, file);
-    if (filesRead.has(absPath)) continue;
-    filesRead.add(absPath);
-    try {
-      const fullSource = await fs.readFile(absPath, "utf-8");
-      const lines = fullSource.split("\n");
-
-      // Smart slice: take imports (first 80 lines) + relevant symbol regions
-      const importLines = lines.slice(0, 50).join("\n");
-      let symbolRegions = "";
-
-      for (const sym of symbols.filter(s => s.file === file).slice(0, 2)) {
-        try {
-          const readResult = await compiler.read_symbol({
-            projectRoot,
-            symbol: sym.symbol,
-            fileHint: file,
-            maxTokens: 350,
-            includeBody: true,
-            includeCallGraphNeighbors: false,
-          });
-          if (readResult.evidence.length > 0) {
-            const ev = readResult.evidence[0];
-            if (ev.source) {
-              symbolRegions += `\n// ── ${sym.symbol} (lines ${ev.startLine}-${ev.endLine}) ──\n${ev.source}\n`;
-            }
-          }
-        } catch {}
-      }
-
-      const source = symbolRegions
-        ? `${importLines}\n\n// ... (truncated) ...\n${symbolRegions}`
-        : importLines;
-
-      totalSourceLength += source.length;
-      symbolSources.push({
-        symbol: file.split("/").pop()?.replace(/\.\w+$/, "") || file,
-        file,
-        kind: "module",
-        source,
-        startLine: 1,
-        endLine: 50,
-        hopDistance: 0,
-      });
-      log(config.verbose, `  ✓ ${file} (${source.length} chars, smart-sliced)`);
-    } catch (e) {
-      log(config.verbose, `  ✗ ${file}: ${e instanceof Error ? e.message : String(e)}`);
+    const page = await compiler.read_evidence({ projectRoot, file, maxTokens: 800 });
+    filePages.set(pageKey(file), page);
+    addPage(page);
+    // Prefix alone can miss the target deep inside a large file.
+    for (const symbol of symbols.filter(item => item.file === file).slice(0, 1)) {
+      const target = await compiler.read_evidence({ projectRoot, file, symbol: symbol.symbol, maxTokens: 800 });
+      filePages.set(pageKey(file, symbol.symbol), target);
+      if (!page.source.includes(target.source) || !target.done) addPage(target, symbol.symbol);
     }
   }
 
   // Check token budget
+  const memory = config.memoryProvider ? await config.memoryProvider(task, projectRoot) : undefined;
+  if (memory?.status === "unavailable") diagnostics.push(`Memory unavailable: ${memory.reason}`);
   const promptInput: PromptInput = {
+    memory,
     task,
     goal: capsule.modelPayload.goal,
     symbols: symbolSources,
@@ -333,16 +316,36 @@ export async function runAgent(
     log(config.verbose, `Step 3: LLM call (attempt ${attempt}/${config.maxRetries})...`);
 
     // Build messages
-    const messages = buildMessages(promptInput, lastError ? {
+    let messages = buildMessages(promptInput, lastError ? {
       error: lastError,
       output: lastOutput,
       attempt,
     } : undefined);
 
+    while (countTokens(JSON.stringify(messages)) > config.maxPromptTokens && promptInput.symbols.length > 1) {
+      promptInput.symbols.shift();
+      messages = buildMessages(promptInput, lastError ? { error: lastError, output: lastOutput, attempt } : undefined);
+    }
+    const requestTokens = countTokens(JSON.stringify(messages));
+    if (requestTokens > config.maxPromptTokens) {
+      lastError = "Complete request exceeds prompt budget";
+      diagnostics.push(lastError);
+      break;
+    }
+    const remainingOutput = Math.min(config.maxOutputTokens, config.maxTotalTokens - consumedTokens - requestTokens);
+    if (remainingOutput < 64) {
+      lastError = "Total token budget exhausted; task requires more evidence or a larger budget";
+      diagnostics.push(lastError);
+      break;
+    }
+    // Failed network requests may already have consumed input; reserve before sending.
+    consumedTokens += requestTokens;
+    const requestUsage: RequestUsage = { attempt, localInputTokens: requestTokens, outputAllowance: remainingOutput, status: "failed", source: "local-estimate" };
+    requests.push(requestUsage);
     // Call LLM
     let llmResult;
     try {
-      llmResult = await (config.llmCaller ?? callLLM)(messages, config);
+      llmResult = await (config.llmCaller ?? callLLM)(messages, { ...config, maxOutputTokens: remainingOutput });
     } catch (e) {
       lastError = `LLM call failed: ${e instanceof Error ? e.message : String(e)}`;
       diagnostics.push(lastError);
@@ -351,6 +354,7 @@ export async function runAgent(
         log(config.verbose, "  Fatal API error encountered, stopping retries.");
         break;
       }
+      consumedTokens += remainingOutput; // a lost response has unknown billed output
       continue;
     }
 
@@ -360,8 +364,24 @@ export async function runAgent(
       continue;
     }
 
-    totalPromptTokens += llmResult.tokens.prompt;
-    totalOutputTokens += llmResult.tokens.output;
+    const actualPrompt = Number.isFinite(llmResult.tokens?.prompt) && llmResult.tokens.prompt > 0 ? llmResult.tokens.prompt : requestTokens;
+    const actualOutput = Number.isFinite(llmResult.tokens?.output) && llmResult.tokens.output > 0 ? llmResult.tokens.output : countTokens(llmResult.content);
+    requestUsage.status = "completed";
+    const providerKnown = llmResult.usageKnown !== false && Number.isFinite(llmResult.tokens?.prompt) && Number.isFinite(llmResult.tokens?.output);
+    requestUsage.source = providerKnown ? "provider" : "local-estimate";
+    if (providerKnown) {
+      requestUsage.inputTokens = llmResult.tokens.prompt;
+      requestUsage.outputTokens = llmResult.tokens.output;
+      if (Number.isFinite(llmResult.tokens.cachedInput)) requestUsage.cachedInputTokens = llmResult.tokens.cachedInput;
+    }
+    totalPromptTokens += actualPrompt;
+    totalOutputTokens += actualOutput;
+    consumedTokens += Math.max(0, actualPrompt - requestTokens) + Math.max(actualOutput, countTokens(llmResult.content));
+    if (consumedTokens > config.maxTotalTokens) {
+      lastError = "Provider response exceeded remaining total token budget; edits not applied";
+      diagnostics.push(lastError);
+      break;
+    }
     lastOutput = llmResult.content;
     log(config.verbose, `  LLM response: ${llmResult.tokens.prompt}+${llmResult.tokens.output} tokens`);
 
@@ -380,58 +400,51 @@ export async function runAgent(
       diagnostics.push(lastError);
       log(config.verbose, `  ⚠ ${lastError}`);
 
-      // Read the FULL requested file and add to context
       if (parsed.moreContextFile) {
         try {
-          const absMorePath = await resolveProjectPath(projectRoot, parsed.moreContextFile);
-          const moreSource = await fs.readFile(absMorePath, "utf-8");
-          // Truncate to first 200 lines if too large
-          const lines = moreSource.split("\n");
-          const truncated = lines.slice(0, 200).join("\n");
-          const requestedFile = parsed.moreContextFile;
-          if (promptInput.symbols.some(item => item.file === requestedFile)) {
-            lastError = `Repeated context request refused: ${requestedFile}`;
-            diagnostics.push(lastError);
-            continue;
+          const file = parsed.moreContextFile;
+          const symbol = parsed.moreContextSymbol;
+          const key = pageKey(file, symbol);
+          let previous = filePages.get(key);
+          if (!previous && parsed.moreContextOffset) {
+            previous = await compiler.read_evidence({ projectRoot, file, symbol, maxTokens: 300 });
           }
-          promptInput.symbols.push({
-            symbol: parsed.moreContextFile.split("/").pop()?.replace(/\.\w+$/, "") || "",
-            file: parsed.moreContextFile,
-            kind: "module",
-            source: truncated,
-            startLine: 1,
-            endLine: Math.min(lines.length, 200),
-            hopDistance: 0,
+          const offset = parsed.moreContextOffset ?? previous?.nextOffset ?? 0;
+          if (previous && offset === previous.totalChars) throw new Error("End of file reached; request a specific offset to reread");
+          const page = await compiler.read_evidence({
+            projectRoot, ...(previous ? { ref: previous.ref, offset } : { file, symbol }),
+            maxTokens: Math.max(300, Math.min(2000, config.maxPromptTokens - 600)),
           });
-          if (estimatePromptTokens(promptInput) > config.maxPromptTokens) {
-            promptInput.symbols.pop();
-            lastError = `Requested context exceeds prompt budget: ${requestedFile}`;
-            diagnostics.push(lastError);
-          }
-          log(config.verbose, `  📖 Read full file: ${parsed.moreContextFile} (${truncated.length} chars)`);
-        } catch (e) {
-          log(config.verbose, `  ✗ Could not read: ${parsed.moreContextFile}`);
+          filePages.set(key, page);
+          // Keep distinct pages while budget permits; replace only identical ranges.
+          const existing = promptInput.symbols.findIndex(item => item.ref === page.ref && item.offset === page.offset);
+          if (existing >= 0) promptInput.symbols.splice(existing, 1);
+          addPage(page, symbol ?? file);
+        } catch (error) {
+          lastError = `Context read failed: ${error instanceof Error ? error.message : String(error)}`;
+          diagnostics.push(lastError);
         }
       }
       continue;
     }
 
     if (parsed.edits.length === 0) {
-      log(config.verbose, "  Verifying that no edits are needed...");
-      const validation = await compiler.validate_delta({
-        projectRoot,
-        taskId: `verdandi-agent-${Date.now()}`,
-        kinds: ["typecheck"],
-        commandProfile: "package-scripts",
-      });
-      validated = true;
-      validationPassed = validation.passed;
-      if (validation.passed) {
+      if (config.dryRun) {
+        appliedEdits = [];
         succeeded = true;
         break;
       }
-      lastError = validation.diagnostics.map(diagnostic => diagnostic.message).join("; ");
-      diagnostics.push(`No-edit verification failed: ${lastError}`);
+      if (!config.taskVerifier) {
+        lastError = "No edits proposed; task completion is unverified (taskVerifier required)";
+        diagnostics.push(lastError);
+        break;
+      }
+      const proof = await config.taskVerifier(projectRoot, task);
+      validated = true;
+      validationPassed = proof.passed;
+      diagnostics.push(...(proof.diagnostics ?? []));
+      if (proof.passed) { succeeded = true; break; }
+      lastError = "Task verification failed for empty edit list";
       continue;
     }
 
@@ -458,6 +471,9 @@ export async function runAgent(
           includeCallGraphNeighbors: false,
         });
 
+        if (readResult.snapshot !== capsule._meta.retrievalSnapshot) {
+          throw new Error("Project changed since model evidence was collected; regenerate task context before editing");
+        }
         if (readResult.evidence.length !== 1 || readResult.requiresEscalation) {
           const errMsg = `Symbol '${edit.symbol}' not found in ${edit.file}; patch aborted`;
           diagnostics.push(errMsg);
@@ -471,6 +487,23 @@ export async function runAgent(
         }
         patchSnapshot = readResult.snapshot;
         const ev = readResult.evidence[0];
+        if (edit.operation === "replace_symbol" || edit.operation === "replace_function_body") {
+          // A full replacement must not discard a tail the model never saw.
+          const artifact = filePages.get(pageKey(edit.file, edit.symbol));
+          const windows = artifact ? promptInput.symbols.filter(item => item.ref === artifact.ref).sort((a, b) => (a.offset ?? 0) - (b.offset ?? 0)) : [];
+          let covered = 0;
+          for (const window of windows) {
+            if ((window.offset ?? 0) > covered) break;
+            covered = Math.max(covered, window.nextOffset ?? 0);
+          }
+          const completeArtifact = !!artifact && covered === artifact.totalChars;
+          const sourceInPrompt = !ev.truncated && ev.source !== undefined && promptInput.symbols.some(item => item.file === edit.file && item.source.includes(ev.source!));
+          if (!completeArtifact && !sourceInPrompt) {
+            diagnostics.push(`Full source for ${edit.file}:${edit.symbol} is not in the active context; request the symbol pages before replacing it`);
+            preparationFailed = true;
+            continue;
+          }
+        }
         const precondition = {
           file: ev.symbol.file,
           contentHash: ev.fileContentHash || "",
@@ -494,7 +527,7 @@ export async function runAgent(
     }
 
     if (preparationFailed || !patchSnapshot || patchOperations.length !== parsed.edits.length) {
-      lastError = "One or more edits could not be prepared atomically";
+      lastError = diagnostics.slice(-3).join("; ") || "One or more edits could not be prepared atomically";
       continue;
     }
 
@@ -506,6 +539,10 @@ export async function runAgent(
       dryRun: false,
       operations: patchOperations,
     });
+    if (!patchResult.applied && patchResult.rollbackToken) {
+      finalRollbackToken = patchResult.rollbackToken;
+      throw new Error("Patch failed with retained recovery journal; inspect rollback before retrying");
+    }
     if (!patchResult.applied || !patchResult.rollbackToken) {
       lastError = patchResult.diagnostics.map(item => item.message).join("; ") || "Atomic patch failed";
       diagnostics.push(lastError);
@@ -525,6 +562,13 @@ export async function runAgent(
         kinds: ["test", "lint", "typecheck"],
         commandProfile: "package-scripts",
       });
+      if (validation.passed && config.taskVerifier) {
+        const proof = await config.taskVerifier(projectRoot, task);
+        if (!proof.passed) {
+          validation.passed = false;
+          validation.diagnostics.push({ kind: "test", message: (proof.diagnostics ?? ["Task behavior verification failed"]).join("; ") });
+        }
+      }
     } catch (error) {
       const rollback = await compiler.rollback_patch({ projectRoot, rollbackToken: patchResult.rollbackToken });
       if (rollback.reverted) {
@@ -562,6 +606,8 @@ export async function runAgent(
     const durationMs = Date.now() - startTime;
     return {
       success: false,
+      completionEvidence: "unverified",
+      usage: { encoding: "cl100k_base", reservedTotalTokens: consumedTokens, requests },
       task,
       attempts: attemptsUsed,
       edits: appliedEdits,
@@ -580,6 +626,8 @@ export async function runAgent(
 
   return {
     success: succeeded,
+    completionEvidence: !succeeded ? "unverified" : config.dryRun ? "proposal" : config.taskVerifier ? "task-verifier" : "project-checks",
+    usage: { encoding: "cl100k_base", reservedTotalTokens: consumedTokens, requests },
     task,
     attempts: attemptsUsed,
     edits: appliedEdits,

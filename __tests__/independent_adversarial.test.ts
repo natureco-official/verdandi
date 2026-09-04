@@ -330,6 +330,7 @@ describe("independent adversarial audit", () => {
     const outputs = [[{ action: "needs_more_context", file: "src/secret-link.ts" }], []];
     const result = await runAgent("inspect alpha", root, {
       apiKey: "test", maxRetries: 2,
+      taskVerifier: async () => ({ passed: (await readFile(path.join(root, "src/a.ts"), "utf8")).includes("return 1") }),
       llmCaller: async messages => {
         prompts.push(JSON.stringify(messages));
         return { content: JSON.stringify(outputs[call++]), tokens: { prompt: 1, output: 1 } };

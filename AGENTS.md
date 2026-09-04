@@ -211,6 +211,7 @@ Expected result: a zero exit code with no failed tests, plus a clearly labeled s
 | :--- | :--- | :--- |
 | `context_capsule` | Generates a bounded, budget-dependent task capsule + 1-hop symbol list | `task`, `projectRoot` |
 | `read_symbol` | Fetches target symbol source snippet + signatures | `projectRoot`, `symbol`, `fileHint` |
+| `read_evidence` | Lossless budgeted source pages; continue with ref/offset; optional exact delta | `projectRoot`, `file` or `ref`, `maxTokens`, `previousRef` |
 | `apply_structured_patch` | Applies AST-guarded code edit + returns `rollbackToken` | `projectRoot`, `taskId`, `operations` |
 | `rollback_patch` | Reverts patch instantly using `rollbackToken` | `projectRoot`, `rollbackToken` |
 | `validate_delta` | Runs explicitly authorized typecheck/test/build validation | `projectRoot`, `taskId`, `kinds`, `commandProfile` |
@@ -218,3 +219,5 @@ Expected result: a zero exit code with no failed tests, plus a clearly labeled s
 ---
 
 > **Note**: Combine **Verðandi Context Compiler** (Present Task Context) with **Urðr Memory Tree** (`~/urdr-memory/` - Persistent Memory) for maximum efficiency and intelligence.
+
+For new code reads, prefer `read_evidence` when truncation matters. `maxTokens` bounds the JSON evidence payload in cl100k_base, not an arbitrary client’s outer MCP framing. Continue from `nextOffset` using the same `ref`; offsets are UTF-16 positions within the file or named symbol. Send `knownRef` only if the complete artifact remains in the current model context; omit it after compaction. See `docs/LOSSLESS-CONTEXT.md`.

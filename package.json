@@ -30,7 +30,9 @@
     "setup:kimi": "node bin/verdandi-context-compiler setup kimi",
     "setup:glm": "node bin/verdandi-context-compiler setup glm",
     "setup:antigravity": "node bin/verdandi-context-compiler setup antigravity",
-    "test:ci": "npm run build && node scripts/run_tests.mjs --test-reporter=dot"
+    "test:ci": "npm run build && node scripts/run_tests.mjs --test-reporter=dot",
+    "benchmark:lossless": "npm run build && node scripts/benchmark_lossless.mjs",
+    "benchmark:compare": "npm run build && node scripts/compare_runs.mjs"
   },
   "keywords": [
     "mcp",
@@ -50,12 +52,12 @@
   "author": "NatureCo",
   "license": "MIT",
   "dependencies": {
+    "@modelcontextprotocol/client": "2.0.0",
+    "js-tiktoken": "^1.0.21",
     "typescript": "^5.9.3"
   },
   "devDependencies": {
-    "@modelcontextprotocol/client": "2.0.0",
     "@types/node": "^24.0.0",
-    "js-tiktoken": "^1.0.21",
     "tsx": "^4.19.0"
   },
   "repository": {

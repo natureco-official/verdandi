@@ -1,6 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import path from "node:path";
+import { countTokens } from "../src/token_budget.js";
 import { Client, ProtocolError } from "@modelcontextprotocol/client";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 
@@ -48,6 +49,7 @@ describe("official @modelcontextprotocol/client stdio compatibility", () => {
         "apply_structured_patch",
         "rollback_patch",
         "validate_delta",
+        "read_evidence",
       ]);
 
       const result = await client.callTool({
@@ -56,6 +58,16 @@ describe("official @modelcontextprotocol/client stdio compatibility", () => {
       });
       assert.equal(result.isError, undefined);
       assert.ok(result.structuredContent && typeof result.structuredContent === "object");
+      const evidence = await client.callTool({ name: "read_evidence", arguments: {
+        projectRoot: PROJECT_ROOT, file: "src/llm_prompt.ts", maxTokens: 800,
+      } });
+      const page = evidence.structuredContent as any;
+      assert.ok(countTokens(page) <= 800);
+      assert.ok(page.ref.startsWith("ev_"));
+      const continuation = await client.callTool({ name: "read_evidence", arguments: {
+        projectRoot: PROJECT_ROOT, ref: page.ref, offset: page.nextOffset, maxTokens: 800,
+      } });
+      assert.equal((continuation.structuredContent as any).offset, page.nextOffset);
       assert.equal(result.content[0]?.type, "text");
     } finally {
       await client.close();
@@ -73,7 +85,7 @@ describe("official @modelcontextprotocol/client stdio compatibility", () => {
       assert.equal(client.getServerVersion()?.name, "verdandi-context-compiler");
 
       const listed = await client.listTools();
-      assert.equal(listed.tools.length, 5);
+      assert.equal(listed.tools.length, 6);
       assert.deepEqual(listed._meta?.[SERVER_INFO_META_KEY], { name: "verdandi-context-compiler", version: "0.2.0" });
 
       const result = await client.callTool({

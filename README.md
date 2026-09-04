@@ -3,7 +3,7 @@
 [![CI](https://github.com/natureco-official/verdandi/actions/workflows/ci.yml/badge.svg)](https://github.com/natureco-official/verdandi/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-blue)]()
-[![Tests](https://img.shields.io/badge/tests-151%20passing-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-CI-brightgreen)]()
 [![Tokens](https://img.shields.io/badge/input%20tokens-−72%25%20measured-2ea043)]()
 
 **🇹🇷 [Türkçe sürüm](README.tr.md)**
@@ -16,6 +16,10 @@
 <img src="docs/token-savings.svg" alt="Input tokens across nine real tasks: 12,441,813 baseline versus 3,469,909 with Verðandi — 72% less" width="100%">
 
 ---
+
+## Lossless evidence and optional Urðr bridge
+
+The new `read_evidence` tool pages exact source text under a named tokenizer budget, keeps immutable references across restarts, and can return an exact delta from `previousRef`. The built-in agent uses these pages with per-request and total reservation budgets. Urðr is optional and explicitly bound to a project memory directory. See [usage, recovery boundaries and measurement](docs/LOSSLESS-CONTEXT.md). These changes have **not** yet established end-to-end model quality parity or a thousand-token task budget.
 
 ## The measurement
 
@@ -235,12 +239,13 @@ agent is talked into still has to get past its own permission gate.
 
 ---
 
-## The five tools
+## The six tools
 
 | Tool | What it does | Why it is safe |
 |---|---|---|
 | `context_capsule` | Picks the symbols and files for a task | Read-only, budget-bounded |
 | `read_symbol` | Returns a symbol's source and hashes | Read-only, project-scoped |
+| `read_evidence` | Lossless token-bounded source pages and hash-checked deltas | Project-scoped; writes a derived evidence cache |
 | `apply_structured_patch` | Applies an edit | Refuses if the file changed since the snapshot |
 | `rollback_patch` | Undoes a patch | Only inside the project, only if untouched since |
 | `validate_delta` | Runs project scripts | Only with explicit `commandProfile: "package-scripts"` |
@@ -294,8 +299,8 @@ The test suite runs with the log switched off. An earlier version did not, and `
 ```bash
 npm run typecheck
 npm run lint
-npm test                                   # 151 tests
-node smoke_test.mjs                        # all five tools, live
+npm test                                   # complete suites
+node smoke_test.mjs                        # legacy smoke checks, live
 node benchmark_runs/setup_worktrees.mjs    # prepare benchmark worktrees
 CAPSULE_WORKTREE_BASE="<printed path>" npm run benchmark:retrieval
 ```

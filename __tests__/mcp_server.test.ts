@@ -125,7 +125,7 @@ describe("MCP Server (stdio JSON-RPC)", () => {
     assert.equal(response.error?.code, -32022);
   });
 
-  it("tools/list 5 arac listeler", async () => {
+  it("tools/list 6 arac listeler", async () => {
     const { request, kill } = createClient();
     try {
       await request("initialize", {});
@@ -137,6 +137,7 @@ describe("MCP Server (stdio JSON-RPC)", () => {
         "apply_structured_patch",
         "rollback_patch",
         "validate_delta",
+        "read_evidence",
       ]);
       assert.ok(result.tools.every((t: any) => t.inputSchema, "all tools have schemas"));
     } finally {

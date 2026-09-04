@@ -14,6 +14,8 @@ export interface ParseResult {
   edits: EditOperation[];
   needsMoreContext: boolean;
   moreContextFile?: string;
+  moreContextOffset?: number;
+  moreContextSymbol?: string;
   rawOutput: string;
   parseError?: string;
 }
@@ -109,6 +111,8 @@ export function parseLLMOutput(rawOutput: string): ParseResult {
     const edits: EditOperation[] = [];
     let needsMoreContext = false;
     let moreContextFile: string | undefined;
+    let moreContextOffset: number | undefined;
+    let moreContextSymbol: string | undefined;
 
     for (const [index, item] of parsed.entries()) {
       if (!item || typeof item !== "object" || Array.isArray(item)) {
@@ -129,6 +133,14 @@ export function parseLLMOutput(rawOutput: string): ParseResult {
             parseError: `Invalid context request at index ${index}: file is required`,
           };
         }
+        if (item.offset !== undefined && (!Number.isInteger(item.offset) || item.offset < 0)) {
+          return { edits: [], needsMoreContext: false, rawOutput, parseError: "Context offset must be a non-negative integer" };
+        }
+        if (item.symbol !== undefined && (typeof item.symbol !== "string" || !item.symbol.trim() || item.symbol.length > 1024)) {
+          return { edits: [], needsMoreContext: false, rawOutput, parseError: "Invalid context symbol" };
+        }
+        moreContextSymbol = item.symbol;
+        moreContextOffset = item.offset;
         needsMoreContext = true;
         moreContextFile = item.file;
         continue;
@@ -170,7 +182,7 @@ export function parseLLMOutput(rawOutput: string): ParseResult {
         parseError: "A response cannot mix edit operations with needs_more_context",
       };
     }
-    return { edits, needsMoreContext, moreContextFile, rawOutput };
+    return { edits, needsMoreContext, moreContextFile, moreContextOffset, moreContextSymbol, rawOutput };
   } catch (e) {
     return {
       edits: [],

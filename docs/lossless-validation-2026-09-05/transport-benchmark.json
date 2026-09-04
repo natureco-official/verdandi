@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "kind": "synthetic-transport-only",
+  "encoding": "cl100k_base",
+  "sourceTokens": 113000,
+  "firstPageTokens": 999,
+  "unchangedTokens": 166,
+  "deltaPageTokens": 342,
+  "pages": 143,
+  "allPagesTokens": 142307,
+  "exactRecovery": true,
+  "exactDeltaRecovery": true,
+  "modelCalls": 0,
+  "taskQualityMeasured": false,
+  "limitation": "Reading every page costs allPagesTokens; first-page reduction does not prove task savings or quality parity."
+}

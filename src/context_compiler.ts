@@ -3,6 +3,9 @@ import { execFile } from "node:child_process";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import ts from "typescript";
+import { replaceFileSafely, withProjectMutation } from "./safe_files.js";
+import { createEvidenceDelta } from "./evidence_delta.js";
+import { storeEvidence, loadEvidence, evidencePage, type ReadEvidenceInput, type EvidencePage } from "./evidence_store.js";
 import { dosyaVektorleri, kosinus, sorguVektoru } from "./semantic.js";
 import {
   type ApplyStructuredPatchInput,
@@ -1821,6 +1824,40 @@ export class TypeScriptContextCompiler implements ContextCompilerTools {
     };
   }
 
+  /** Lossless alternative to read_symbol's legacy prefix-only response. */
+  async read_evidence(input: ReadEvidenceInput): Promise<EvidencePage> {
+    if (typeof input.projectRoot !== "string" || !input.projectRoot.trim()) throw new RangeError("projectRoot is required");
+    if (input.ref && (input.file || input.symbol || input.previousRef)) throw new RangeError("Use a reference OR a file, not both");
+    if (input.ref) return evidencePage(await loadEvidence(input.projectRoot, input.ref), input.ref, input);
+    if (!input.file) throw new RangeError("file or ref is required");
+    if (input.offset) throw new RangeError("Continuation requires the original evidence ref");
+    const index = await this.getOrCreateIndex(input.projectRoot);
+    const file = index.fileByRelative.get(input.file);
+    if (!file || !await isResolvedPathInsideRoot(index.root, file.absolute)) throw new RangeError("File is not indexed inside this project");
+    const candidates = input.symbol
+      ? (index.symbolsByFile.get(input.file) ?? []).filter(item => item.symbol === input.symbol)
+      : [];
+    if (input.symbol && candidates.length !== 1) throw new RangeError("Symbol must resolve unambiguously in this file");
+    const text = input.symbol ? candidates[0].text : file.text;
+    const record = {
+      version: 1 as const, project: await fs.realpath(input.projectRoot), file: input.file,
+      snapshot: index.snapshot, hash: hash(text), text,
+      ...(input.symbol ? { symbol: input.symbol } : {}),
+    };
+    const ref = await storeEvidence(record);
+    if (input.previousRef) {
+      const previous = await loadEvidence(input.projectRoot, input.previousRef);
+      if (previous.kind === "delta" || previous.file !== record.file || previous.symbol !== record.symbol) {
+        throw new RangeError("Delta requires a source reference for the same file and symbol");
+      }
+      const text = JSON.stringify(createEvidenceDelta(previous.text, record.text, input.previousRef, ref));
+      const deltaRecord = { ...record, kind: "delta" as const, text, hash: hash(text) };
+      const deltaRef = await storeEvidence(deltaRecord);
+      return evidencePage(deltaRecord, deltaRef, input);
+    }
+    return evidencePage(record, ref, input);
+  }
+
   async read_symbol(input: ReadSymbolInput): Promise<ReadSymbolOutput> {
     if (typeof input.projectRoot !== "string" || !input.projectRoot.trim()) {
       throw new RangeError("projectRoot must be a non-empty string");
@@ -1947,7 +1984,16 @@ export class TypeScriptContextCompiler implements ContextCompilerTools {
     };
   }
 
-  async apply_structured_patch(
+  async apply_structured_patch(input: ApplyStructuredPatchInput): Promise<ApplyStructuredPatchOutput> {
+    try { return await withProjectMutation(input.projectRoot, () => this.applyPatchUnlocked(input)); }
+    catch (error) {
+      if (error instanceof RangeError || error instanceof TypeError) throw error;
+      return { applied: false, changedFiles: [], unifiedDiffSummary: "", requiresEscalation: true,
+        diagnostics: [{ operationIndex: -1, code: "WRITE_FAILED", message: error instanceof Error ? error.message : String(error) }] };
+    }
+  }
+
+  private async applyPatchUnlocked(
     input: ApplyStructuredPatchInput,
   ): Promise<ApplyStructuredPatchOutput> {
     if (typeof input.projectRoot !== "string" || !input.projectRoot.trim() || input.projectRoot.length > 4096) {
@@ -2233,7 +2279,8 @@ export class TypeScriptContextCompiler implements ContextCompilerTools {
         requiresEscalation: true,
       };
     }
-    this.patchRollbacks.set(rollbackToken, backupEntries);
+    const journal = { version: 2, root: await fs.realpath(input.projectRoot), entries: backupEntries };
+    this.patchRollbacks.set(rollbackToken, journal);
 
     // Persist the recovery journal before touching source files. Rollback also
     // accepts entries that are still at their original hash, so a process crash
@@ -2242,7 +2289,9 @@ export class TypeScriptContextCompiler implements ContextCompilerTools {
     try {
       const rollbacksDir = await ensureSafeDirectory(path.resolve(input.projectRoot), [".verdandi", "rollbacks"]);
       diskTokenFile = path.join(rollbacksDir, `${rollbackToken}.json`);
-      await fs.writeFile(diskTokenFile, JSON.stringify(backupEntries), { encoding: "utf8", mode: 0o600, flag: "wx" });
+      const handle = await fs.open(diskTokenFile, "wx", 0o600);
+      try { await handle.writeFile(JSON.stringify(journal), "utf8"); await handle.sync(); }
+      finally { await handle.close(); }
     } catch (error) {
       this.patchRollbacks.delete(rollbackToken);
       return {
@@ -2261,29 +2310,36 @@ export class TypeScriptContextCompiler implements ContextCompilerTools {
     const written: typeof pendingWrites = [];
     try {
       for (const write of pendingWrites) {
-        await fs.writeFile(write.absolute, write.updated, "utf8");
+        await replaceFileSafely(write.absolute, write.updated, hash(write.original));
         written.push(write);
       }
     } catch (error) {
       for (const write of written.reverse()) {
         try {
           if (hash(await fs.readFile(write.absolute, "utf8")) === hash(write.updated)) {
-            await fs.writeFile(write.absolute, write.original, "utf8");
+            await replaceFileSafely(write.absolute, write.original, hash(write.updated));
           }
         } catch {
           // Preserve the original write failure as the actionable diagnostic.
         }
       }
-      this.patchRollbacks.delete(rollbackToken);
-      if (diskTokenFile) try { await fs.unlink(diskTokenFile); } catch {}
+      // Keep recovery evidence even if restoring earlier writes failed.
+      this.invalidateCache(input.projectRoot);
+      const remainingChanges: string[] = [];
+      for (const write of pendingWrites) {
+        try {
+          if (hash(await fs.readFile(write.absolute, "utf8")) !== hash(write.original)) remainingChanges.push(write.relative);
+        } catch { remainingChanges.push(write.relative); }
+      }
       return {
         applied: false,
-        changedFiles: [],
-        unifiedDiffSummary: "",
+        changedFiles: remainingChanges,
+        unifiedDiffSummary: remainingChanges.length ? "Partial write: use retained recovery journal" : "",
+        rollbackToken,
         diagnostics: [{
           operationIndex: -1,
           code: "WRITE_FAILED",
-          message: `Patch write failed: ${error instanceof Error ? error.message : String(error)}`,
+          message: `Patch write failed; recovery journal retained: ${error instanceof Error ? error.message : String(error)}`,
         }],
         requiresEscalation: true,
       };
@@ -2302,20 +2358,29 @@ export class TypeScriptContextCompiler implements ContextCompilerTools {
     };
   }
 
-  private patchRollbacks = new Map<string, RollbackEntry[]>();
+  private patchRollbacks = new Map<string, { version: number; root: string; entries: RollbackEntry[] }>();
 
   async rollback_patch(input: RollbackPatchInput): Promise<RollbackPatchOutput> {
+    return withProjectMutation(input.projectRoot, () => this.rollbackUnlocked(input));
+  }
+
+  private async rollbackUnlocked(input: RollbackPatchInput): Promise<RollbackPatchOutput> {
     if (!ROLLBACK_TOKEN_PATTERN.test(input.rollbackToken)) {
       return { reverted: false, revertedFiles: [], message: "Invalid rollback token." };
     }
-    const root = path.resolve(input.projectRoot);
+    const root = await fs.realpath(input.projectRoot);
     let backupEntries: RollbackEntry[] | undefined;
     const diskTokenFile = path.join(root, ".verdandi", "rollbacks", `${input.rollbackToken}.json`);
 
     try {
       if (!await isResolvedPathInsideRoot(root, diskTokenFile)) throw new Error("Unsafe rollback token path");
       const diskContent = await fs.readFile(diskTokenFile, "utf-8");
-      const parsed = JSON.parse(diskContent) as unknown;
+      const journal = JSON.parse(diskContent);
+      if (!Array.isArray(journal) && (journal.version !== 2 || journal.root !== root)) {
+        return { reverted: false, revertedFiles: [], message: "Rollback journal belongs to another project or version." };
+      }
+      // Legacy journals are confined to the directory containing the journal.
+      const parsed = Array.isArray(journal) ? journal : journal.entries;
       if (!Array.isArray(parsed) || !parsed.every(item =>
         item && typeof item === "object" &&
         typeof item.relative === "string" &&
@@ -2328,8 +2393,8 @@ export class TypeScriptContextCompiler implements ContextCompilerTools {
       backupEntries = parsed as RollbackEntry[];
     } catch {
       const memoryMap = this.patchRollbacks.get(input.rollbackToken);
-      if (memoryMap) {
-        backupEntries = memoryMap;
+      if (memoryMap?.root === root) {
+        backupEntries = memoryMap.entries;
       }
     }
 
@@ -2362,12 +2427,12 @@ export class TypeScriptContextCompiler implements ContextCompilerTools {
     const revertedFiles: string[] = [];
     try {
       for (const item of verified.filter(item => item.needsRevert)) {
-        await fs.writeFile(item.absolute, item.entry.text, "utf8");
+        await replaceFileSafely(item.absolute, item.entry.text, hash(item.currentText));
         revertedFiles.push(item.entry.relative);
       }
     } catch (error) {
       for (const item of verified.filter(item => revertedFiles.includes(item.entry.relative)).reverse()) {
-        try { await fs.writeFile(item.absolute, item.currentText, "utf8"); } catch {}
+        try { await replaceFileSafely(item.absolute, item.currentText, hash(item.entry.text)); } catch {}
       }
       return {
         reverted: false,

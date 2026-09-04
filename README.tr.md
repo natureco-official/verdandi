@@ -3,7 +3,7 @@
 [![CI](https://github.com/natureco-official/verdandi/actions/workflows/ci.yml/badge.svg)](https://github.com/natureco-official/verdandi/actions/workflows/ci.yml)
 [![Lisans: MIT](https://img.shields.io/badge/Lisans-MIT-green.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-blue)]()
-[![Test](https://img.shields.io/badge/test-151%20geçiyor-brightgreen)]()
+[![Test](https://img.shields.io/badge/test-CI-brightgreen)]()
 [![Token](https://img.shields.io/badge/input%20token-%E2%88%9272%25%20ölçüldü-2ea043)]()
 
 **🇬🇧 [English version](README.md)**
@@ -14,6 +14,10 @@
 **Verðandi** kod tabanınızı sizin ajanınız yerine okur. Projeyi TypeScript derleyicisiyle indeksler, görevin gerçekten dokunduğu sembolleri bulur ve ajana yalnızca onlardan oluşan küçük bir kapsül verir. Ajan arama aşamasını atlar, doğrudan işe başlar.
 
 <img src="docs/token-savings.tr.svg" alt="Dokuz gerçek görevde input token: 12.441.813 taban, Verðandi ile 3.469.909 — %72 azalma" width="100%">
+
+## Kayıpsız bağlam ve isteğe bağlı Urðr bağlantısı
+
+Yeni `read_evidence` aracı kaynak kodunu gerçek tokenizer bütçesiyle sayfalar; eski sürüm referanslarını korur ve `previousRef` üzerinden doğrulanabilir fark döndürür. Dahili ajan istek ve toplam tüketim bütçesi kullanır. Urðr bağlantısı açıkça seçilen proje belleğiyle çalışır. [Kullanım, kurtarma sınırları ve ölçüm](docs/LOSSLESS-CONTEXT.md). Bu değişikliklerle uçtan uca sıfır kalite kaybı ve binler düzeyinde görev tüketimi henüz kanıtlanmış değildir.
 
 ---
 
@@ -235,12 +239,13 @@ ikna edildiği her şey yine de kendi izin kapısından geçmek zorunda kalsın.
 
 ---
 
-## Beş araç
+## Altı araç
 
 | Araç | Ne yapar | Neden güvenli |
 |---|---|---|
 | `context_capsule` | Görev için sembol ve dosyaları seçer | Salt okunur, bütçe sınırlı |
 | `read_symbol` | Sembolün kaynağını ve hash'lerini döndürür | Salt okunur, proje kapsamında |
+| `read_evidence` | Kayıpsız, token sınırlı kaynak sayfaları ve hash doğrulamalı farklar | Proje kapsamında; türetilmiş kanıt önbelleği yazar |
 | `apply_structured_patch` | Düzenlemeyi uygular | Dosya snapshot'tan beri değiştiyse reddeder |
 | `rollback_patch` | Yamayı geri alır | Yalnızca proje içinde, yalnızca dokunulmamışsa |
 | `validate_delta` | Proje scriptlerini çalıştırır | Yalnızca açık `commandProfile: "package-scripts"` ile |
@@ -294,8 +299,8 @@ Test paketi kayıt kapalı koşuyor. Önceki hali öyle değildi ve `npm test` d
 ```bash
 npm run typecheck
 npm run lint
-npm test                                   # 151 test
-node smoke_test.mjs                        # beş araç, canlı
+npm test                                   # complete suite
+node smoke_test.mjs                        # mevcut smoke kontrolleri, canlı
 node benchmark_runs/setup_worktrees.mjs    # benchmark worktree'lerini hazırlar
 CAPSULE_WORKTREE_BASE="<yazdırılan yol>" npm run benchmark:retrieval
 ```
